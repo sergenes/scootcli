@@ -1,0 +1,35 @@
+# ── Secrets / local config ────────────────────────────────────────────────────
+env.env
+.env
+*.env
+!*.env.example
+
+# Copilot / auth caches
+.cache/
+*.jwt.json
+
+# scoot session working dir (worktrees, backups, audit logs)
+.scoot/
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── OS / editor ───────────────────────────────────────────────────────────────
+.DS_Store
+.idea/
+.vscode/
+
+/SPEC.todelete.md
+
+# Local AI-tooling state (not part of the project)
+.ai/
