@@ -27,6 +27,7 @@ jobs:
       - name: Test
         run: python -m pytest -q
       - name: Guard the zero-dependency rule
+        if: matrix.python != '3.9'  # sys.stdlib_module_names exists from Python 3.10
         run: |
           # Fail if any module under src/ imports something outside the standard library.
           python - <<'PY'
