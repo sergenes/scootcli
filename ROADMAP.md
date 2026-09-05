@@ -3,14 +3,14 @@
 What is shipped is described in `SPEC.md`; this file is what comes next.
 Dates are decisions, not promises.
 
-## 0.1.0: first public release (in progress)
+## 0.1.0: first public release (released 2026-09-05)
 
-Done: provider layer on official APIs (OpenAI Responses, Ollama), API-key auth, `.env` with an allowlist, MIT license, modern packaging, the mascot.
+Published on PyPI as `scootcli`, tagged `v0.1.0`, with `scoot.pyz` attached to the GitHub release.
+Verified: a clean virtualenv installs it with no dependencies; tool-calling turns work on OpenAI (`gpt-5.3-codex`) and Ollama (`llama3.2`); the REPL renders in macOS Terminal and tmux.
 
-Remaining before publishing:
-- End-to-end pass on a clean machine: `pipx install` of the built wheel, the zipapp, `scoot auth set openai`, a REPL turn with tools, an image prompt, `--continue`, `/compact`; Ollama with `llama3.2` for tools and `qwen2.5vl` for an image; macOS Terminal, iTerm2, one Linux terminal.
-- Fresh git history with no remote from the old server; delete `SPEC.todelete.md`; run the secret scan once more.
-- TestPyPI, then PyPI; GitHub repo with description and topics; tag `v0.1.0`.
+Still open from the launch checklist, to be done as 0.1.x fixes come in:
+- A pass on iTerm2 and one Linux terminal; an image prompt through the vision path; `--continue` and `/compact` on a real session.
+- A CI workflow that runs the test suite, then branch protection on `main`.
 
 ## 0.2.0: Anthropic
 
