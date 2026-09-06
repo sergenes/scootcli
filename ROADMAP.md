@@ -8,9 +8,8 @@ Dates are decisions, not promises.
 Published on PyPI as `scootcli`, tagged `v0.1.0`, with `scoot.pyz` attached to the GitHub release.
 Verified: a clean virtualenv installs it with no dependencies; tool-calling turns work on OpenAI (`gpt-5.3-codex`) and Ollama (`llama3.2`); the REPL renders in macOS Terminal and tmux.
 
-Still open from the launch checklist, to be done as 0.1.x fixes come in:
-- A pass on iTerm2 and one Linux terminal; an image prompt through the vision path; `--continue` and `/compact` on a real session.
-- A CI workflow that runs the test suite, then branch protection on `main`.
+Done since: CI and branch protection (0.1.0), image prompts and `--continue` verified live on both hosted providers (0.2.0), a real Linux install (0.4.0, which produced the first-run fixes and 0.5.0's scope).
+Still open from the launch checklist: a manual look in iTerm2 and `/compact` on a real long session.
 
 ## 0.2.0: Anthropic (released 2026-09-06)
 
@@ -42,8 +41,20 @@ The workspace is the default, not a wall: a file tool that needs a path outside 
 
 ## Backlog
 
+Verification still owed:
+- A manual look in iTerm2 (bar, dock, paste, ESC, `/c` copy) and `/compact` on a real long session.
+- More Linux runs as the first users report; the first two runs each found a real problem.
+
+Small, likely soon:
+- Cost per model in `/status` (per-model tokens exist since 0.3.0; cost needs a price table per provider that must stay current).
+- An opt-in "a newer scoot exists" notice in `scoot --version` (means one request to PyPI; off by default).
+- A mid-turn note in the REPL (headless mode has `note`; the REPL has no way to talk to a running turn except ESC).
+- The router classifier is rough with 3B local models (four of seven on a hand-labelled set); a better default prompt or a hosted-model recommendation in the docs.
+- A test-friendly `install.sh --uninstall`.
+
+Larger:
+- Windows: the input dock and ESC handling use termios and raw mode, so scoot runs on Windows only under WSL today; a native path needs the `msvcrt` equivalents and a status bar that survives the console.
 - Auto-attach specific open files beyond the injected repo map.
-- Richer `/status`: per-model tokens and cost.
 - More presets (`test`, `review`).
 - Interactive editing of tool arguments with a real editor instead of a line prompt.
 - Wordmark banner (figlet) next to the mascot, if it can be made clean.
