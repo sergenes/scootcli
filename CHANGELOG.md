@@ -5,6 +5,8 @@ Versions before 0.1.0 were internal builds of the tool's predecessor, renumbered
 What comes next lives in [`ROADMAP.md`](./ROADMAP.md); the behaviour spec in [`SPEC.md`](./SPEC.md); design notes in [`DESIGN.md`](./DESIGN.md).
 
 ## [Unreleased]
+- **Anthropic provider:** `anthropic/claude-opus-5` and the rest of the Claude family through the Messages API, on the same provider layer: thinking blocks replay to the producing model, `SCOOT_EFFORT` maps to `output_config.effort`, tool results of a step travel in one message, refusals surface as errors, prompt caching is on, and Claude Opus 5 requests the server-side refusal fallback (`SCOOT_ANTHROPIC_FALLBACKS=0` to disable).
+- **README badges.**
 - **`open_editor` tool:** open a workspace file in IntelliJ IDEA (`idea -e`, LightEdit) or VS Code as a detached process; `SCOOT_EDITOR` sets the default, the model may pick per call; approval-gated like `run_shell`.
 - **`run_shell` never waits for input:** the child runs with stdin closed and pagers/prompts disabled (`GIT_PAGER=cat`, `GIT_TERMINAL_PROMPT=0`, …), so `git log` or an interactive installer fails fast instead of hanging the turn.
 - **Spinner timer:** the activity spinner shows elapsed time after 3 s and a "ctrl+c to force" reminder after 30 s.

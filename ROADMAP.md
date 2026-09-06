@@ -12,13 +12,11 @@ Still open from the launch checklist, to be done as 0.1.x fixes come in:
 - A pass on iTerm2 and one Linux terminal; an image prompt through the vision path; `--continue` and `/compact` on a real session.
 - A CI workflow that runs the test suite, then branch protection on `main`.
 
-## 0.2.0: Anthropic
+## 0.2.0: Anthropic (live-verified 2026-09-06, release pending)
 
-- `providers/anthropic.py`: Messages API adapter (`POST /v1/messages`, `x-api-key`, `anthropic-version`).
-- Mapping: `system` top-level; tools with `input_schema`; `tool_use` blocks to tool calls and `tool_result` blocks (all of one step in a single user message) back; streaming events `content_block_start` / `content_block_delta` (`text_delta`, `input_json_delta`) / `content_block_stop` / `message_delta`; usage from `message_start` plus `message_delta`.
-- Thinking blocks ride on the same opaque `provider_items` rule as OpenAI reasoning; `SCOOT_EFFORT` maps to `output_config.effort`; `max_tokens` required and generous; `stop_reason: "refusal"` becomes a clear error; top-level `cache_control: {"type": "ephemeral"}` since the system prompt and tool list are stable prefixes; images as base64 blocks.
-- Default model `claude-opus-5`; registry row with `ANTHROPIC_API_KEY`.
-- Live check with a real key before release.
+Shipped on `dev`: `providers/anthropic.py` (Messages API adapter), the `anthropic` registry row, and tests for translation, per-model request rules, parsing, streaming, and error mapping.
+Verified live with a real key: model list, a streaming tool-calling turn on `claude-opus-5` with a thinking block replayed across the call, the non-streaming path, the Opus 4.8 and Haiku request rules, an image described through the Anthropic vision path, and `--continue`.
+Remaining: version bump to 0.2.0, changelog heading, build, upload, tag, release.
 
 ## 0.3.0: routing
 

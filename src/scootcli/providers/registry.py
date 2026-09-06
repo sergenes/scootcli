@@ -44,11 +44,13 @@ def load_builtins() -> None:
     global _loaded
     if _loaded:
         return
+    from .anthropic import AnthropicProvider
     from .openai_chat import OpenAIChatProvider
     from .openai_responses import OpenAIResponsesProvider
 
     _WIRES["openai_responses"] = OpenAIResponsesProvider
     _WIRES["openai_chat"] = OpenAIChatProvider
+    _WIRES["anthropic"] = AnthropicProvider
     register(ProviderSpec(
         name="openai",
         base_url="https://api.openai.com/v1",
@@ -68,6 +70,16 @@ def load_builtins() -> None:
         preferred_models=("llama3.2", "qwen3", "llama3.1", "mistral"),
         vision_models=("qwen2.5vl", "llama3.2-vision", "llava", "gemma3", "minicpm-v"),
         capabilities=frozenset({"tools", "streaming", "vision", "temperature"}),
+    ))
+    register(ProviderSpec(
+        name="anthropic",
+        base_url="https://api.anthropic.com/v1",
+        wire="anthropic",
+        key_env=("ANTHROPIC_API_KEY",),
+        key_required=True,
+        preferred_models=("claude-opus-5", "claude-sonnet-5", "claude-opus-4-8", "claude-haiku-4-5"),
+        vision_models=("claude",),
+        capabilities=frozenset({"tools", "streaming", "vision", "reasoning"}),
     ))
     _loaded = True
 

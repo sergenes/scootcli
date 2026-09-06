@@ -147,7 +147,10 @@ parts with data URIs. Every consumer speaks it; adapters translate at the edge.
 - **Wire adapters** subclass `BaseProvider` and implement `_complete` / `_stream`: `openai_responses`
   (`POST /responses`; `instructions`, `input` items, flat function tools, `store: false`,
   `reasoning.effort` for reasoning models; SSE events `response.output_text.delta`,
-  `response.output_item.done`, `response.completed`) and `openai_chat` (`POST /chat/completions`).
+  `response.output_item.done`, `response.completed`), `openai_chat` (`POST /chat/completions`), and
+  `anthropic` (`POST /messages`: `system` top-level, `tool_use`/`tool_result` blocks, one user message
+  per step of tool results, `thinking` blocks replayed via `provider_items`, `x-api-key` auth through
+  the base class's header hook).
 - **Opaque provider items.** A reply's output items (encrypted `reasoning`, later Anthropic
   `thinking`) are stored on the assistant message under `provider_items`, tagged with the producing
   `provider/model`, and replayed verbatim only to that model. Other models get a rebuilt message.

@@ -15,7 +15,7 @@ Each numbered statement is testable, and most have a network-free test.
 
 2.1 A model id is `provider/model` (`openai/gpt-5.3-codex`, `ollama/llama3.2`).
 A bare model name is resolved against the default provider.
-2.2 Built-in providers are `openai` (OpenAI Responses API, key `OPENAI_API_KEY`, required) and `ollama` (local Responses API at `http://localhost:11434/v1`, no key).
+2.2 Built-in providers are `openai` (OpenAI Responses API, key `OPENAI_API_KEY`, required), `anthropic` (Anthropic Messages API, key `ANTHROPIC_API_KEY`, required, default model `claude-opus-5`), and `ollama` (local Responses API at `http://localhost:11434/v1`, no key).
 2.3 The default provider is `SCOOT_PROVIDER` when set; otherwise the first registered provider that requires a key and has one; otherwise `ollama`.
 2.4 The model preference is `default` unless set: the default provider's first preferred model (`gpt-5.3-codex` for OpenAI, `llama3.2` for Ollama).
 2.5 The `auto` preference picks a model per turn from the live model list: a strong coding model for multi-step or editing prompts, a cheaper one for short questions, never a dated snapshot id when a plain id exists, and falls back to the `default` resolution when the list is empty.
@@ -23,6 +23,8 @@ A bare model name is resolved against the default provider.
 `--provider NAME` restricts the list; `--json` returns `{"models": [...], "errors": {...}}`.
 2.7 Each provider's base URL can be overridden with `SCOOT_<PROVIDER>_BASE_URL`.
 2.8 Requests to `openai` carry `reasoning.effort` from `SCOOT_EFFORT` (`low` | `medium` | `high` | `xhigh`, default `medium`) for reasoning models, `store: false`, and no `temperature`; requests to `ollama` carry `temperature` when given and no `reasoning`.
+2.8a Requests to `anthropic` carry `x-api-key` and `anthropic-version` headers, a required `max_tokens` (32000 unless the caller sets one), the system prompt as `system`, tools as `input_schema`, `tool_choice: auto`, top-level `cache_control: ephemeral`, `output_config.effort` from `SCOOT_EFFORT` (capped at `high` on 4.6 models, omitted on Haiku), `thinking: adaptive` only on models where omitting it would disable thinking (Opus 4.6/4.7/4.8, Sonnet 4.6), no sampling parameters, and on Claude Opus 5 and Fable `fallbacks: "default"` with its beta header unless `SCOOT_ANTHROPIC_FALLBACKS=0`.
+2.8b All `tool` results of one step are sent to Anthropic in a single user message; a `stop_reason` of `refusal` becomes an error with a hint rather than an empty answer.
 2.9 Output items a provider returns (for example encrypted reasoning) are stored on the assistant message, tagged with the producing model, and replayed verbatim only when the same model is called again; another model receives a rebuilt message without them.
 2.10 A model call that fails with a transient error (network, timeout, 429, 5xx) is retried up to three times with capped, jittered backoff, never after streamed text has reached the screen; a 401 fails immediately with a hint naming the key variable and `scoot auth`.
 2.11 Usage is normalized to `prompt_tokens`, `completion_tokens`, and `total_tokens` whatever the provider calls them.

@@ -1,5 +1,13 @@
 # scoot
 
+[![PyPI](https://img.shields.io/pypi/v/scootcli.svg?label=PyPI)](https://pypi.org/project/scootcli/)
+[![tests](https://github.com/sergenes/scootcli/actions/workflows/tests.yml/badge.svg)](https://github.com/sergenes/scootcli/actions/workflows/tests.yml)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/downloads/)
+[![Dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen.svg)](#install-options)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey.svg)](#install-options)
+[![Providers](https://img.shields.io/badge/providers-OpenAI%20%7C%20Ollama%20%7C%20Anthropic-orange.svg)](#providers-and-models)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+
 ```
        ╭───╮      scoot: a tiny coding agent that goes where you point it.
        │o o│
@@ -10,7 +18,7 @@
 
 `scoot` is a terminal coding agent in plain Python.
 You type what you want in natural language; it reads, searches, edits, and runs things in your repo, asking before anything risky.
-It talks to official model APIs (OpenAI today, a local Ollama for free, Anthropic next) and has **zero third-party dependencies**: the whole tool is the Python standard library, and it ships as a single-file zipapp as well as a wheel.
+It talks to official model APIs (OpenAI, Anthropic, and a local Ollama for free) and has **zero third-party dependencies**: the whole tool is the Python standard library, and it ships as a single-file zipapp as well as a wheel.
 
 ## Where this comes from
 
@@ -63,7 +71,7 @@ A bare name means the default provider, which is the first provider that has a k
 |---|---|---|---|
 | `openai` | OpenAI Responses API | `OPENAI_API_KEY` | `gpt-5.3-codex` |
 | `ollama` | local Ollama, Responses API | none | `llama3.2` |
-| `anthropic` | Messages API | `ANTHROPIC_API_KEY` | arrives in 0.2.0 |
+| `anthropic` | Anthropic Messages API | `ANTHROPIC_API_KEY` | `claude-opus-5` |
 
 ```bash
 scoot models                         # every configured provider, grouped
@@ -73,7 +81,8 @@ scoot --model auto "..."             # pick a model per prompt from the live lis
 ```
 
 Inside the REPL, `/model <provider/model>` switches and is remembered for the next launch; `/model default` goes back to the provider's preferred model.
-`SCOOT_EFFORT` (`low` | `medium` | `high` | `xhigh`, default `medium`) sets the reasoning effort for models that take it.
+`SCOOT_EFFORT` (`low` | `medium` | `high` | `xhigh`, default `medium`) sets the reasoning effort for models that take it, on both OpenAI and Anthropic.
+On Claude Opus 5 the server-side refusal fallback is requested by default, so a declined request is retried on another Claude model inside the same call; `SCOOT_ANTHROPIC_FALLBACKS=0` turns that off.
 
 A note on how this is built: scoot speaks the OpenAI chat format internally and translates at the edge.
 Adding a provider that speaks that format is one registry row; a different wire format is one small adapter (`src/scootcli/providers/`).
