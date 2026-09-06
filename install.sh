@@ -51,9 +51,21 @@ say "✔ installed $VER → $INSTALL_DIR/scoot"
 case ":$PATH:" in
     *":$INSTALL_DIR:"*) ;;
     *)
+        case "$(basename "${SHELL:-sh}")" in
+            zsh)  RC="$HOME/.zshrc" ;;
+            fish) RC="$HOME/.config/fish/config.fish" ;;
+            *)    RC="$HOME/.bashrc" ;;
+        esac
         say ""
-        say "  $INSTALL_DIR is not on your PATH. Add it (then open a new shell):"
-        say "    echo 'export PATH=\"$INSTALL_DIR:\$PATH\"' >> ~/.zshrc    # or ~/.bashrc"
+        say "  $INSTALL_DIR is not on your PATH yet. Add it for new shells:"
+        if [ "$(basename "${SHELL:-sh}")" = "fish" ]; then
+            say "    fish_add_path $INSTALL_DIR"
+        else
+            say "    echo 'export PATH=\"$INSTALL_DIR:\$PATH\"' >> $RC && source $RC"
+        fi
+        if [ "$INSTALL_DIR" = "$HOME/.local/bin" ] && [ "$(uname -s)" = "Linux" ]; then
+            say "  (on Debian, Ubuntu, and Pop!_OS a new login shell picks ~/.local/bin up by itself now that it exists)"
+        fi
         ;;
 esac
 

@@ -36,10 +36,17 @@ The naive version did real work in my repos for long enough that the next step w
 ## Quick start
 
 ```bash
-pipx install scootcli            # or: pip install scootcli
+pipx install scootcli && pipx ensurepath   # then open a new terminal so `scoot` is on PATH
 scoot auth set openai            # paste your OpenAI API key once (hidden input, validated, stored 0600)
 cd ~/code/your-project
 scoot                            # open the REPL
+```
+
+No pipx yet? On Debian, Ubuntu, and Pop!_OS it is `sudo apt install pipx`; on macOS `brew install pipx`.
+Or skip pipx entirely with the one-line installer, which needs only `curl` and Python 3.9+:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sergenes/scootcli/main/install.sh | bash
 ```
 
 Or run entirely local with [Ollama](https://ollama.com), no key at all:
@@ -232,7 +239,7 @@ The bottom row shows the mascot's face (its eyes follow the turn: `o o` idle, `>
 ## Install options
 
 ```bash
-pipx install scootcli                          # recommended: isolated, `scoot` on PATH
+pipx install scootcli && pipx ensurepath       # recommended: isolated; ensurepath puts ~/.local/bin on PATH for new shells
 curl -fsSL https://raw.githubusercontent.com/sergenes/scootcli/main/install.sh | bash   # no pipx: puts the zipapp at ~/.local/bin/scoot
 pip install scootcli                           # anywhere
 curl -LO https://github.com/sergenes/scootcli/releases/latest/download/scoot.pyz && python3 scoot.pyz  # single file, no install
@@ -240,6 +247,7 @@ git clone https://github.com/sergenes/scootcli && cd scootcli && pip install -e 
 ```
 
 The install script needs only `curl` and Python 3.9+. `SCOOT_VERSION=v0.2.0` pins a release and `SCOOT_INSTALL_DIR` changes the target; read it before you run it, it is sixty lines.
+Both pipx and the script install into `~/.local/bin`. On a fresh Linux account that directory is added to PATH at login only if it already exists, so after the very first install either open a new login shell or run `pipx ensurepath`; the installer prints the exact line for your shell.
 
 Requirements: Python 3.9 or newer on macOS or Linux.
 Nothing else: no compiler, no packages, no `curl`.
