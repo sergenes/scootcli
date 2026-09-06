@@ -7,8 +7,10 @@ selected by ``spec.wire``. Base URLs can be overridden per provider with ``SCOOT
 from __future__ import annotations
 
 import os
+import socket
 from dataclasses import replace
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
+from urllib.parse import urlsplit
 
 from ..errors import ConfigError, ScootError
 from .base import BaseProvider, ChatResult, ModelInfo, ProviderSpec, qualify, split_model_id
@@ -87,6 +89,56 @@ def load_builtins() -> None:
 def base_url_for(spec: ProviderSpec) -> str:
     override = os.environ.get(f"SCOOT_{spec.name.upper()}_BASE_URL", "").strip()
     return override or spec.base_url
+
+
+def is_local_url(url: str) -> bool:
+    host = (urlsplit(url).hostname or "").lower()
+    return host in ("localhost", "127.0.0.1", "::1", "0.0.0.0") or host.endswith(".localhost")
+
+
+def reachable(url: str, timeout: float = 0.3) -> bool:
+    """One TCP connect to the URL's host and port. Cheap enough to run at startup for a local server."""
+    parts = urlsplit(url)
+    host = parts.hostname or ""
+    port = parts.port or (443 if parts.scheme == "https" else 80)
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+SETUP_HELP = (
+    "No model provider is ready yet. Set one up:\n"
+    "  scoot auth set openai        hosted, needs an OpenAI API key\n"
+    "  scoot auth set anthropic     hosted, needs an Anthropic API key\n"
+    "  ollama pull llama3.2         local and free (install from https://ollama.com), then run scoot again"
+)
+
+
+def readiness(config) -> Tuple[bool, str]:
+    """Whether the default provider can take a request now, and a message when it cannot.
+
+    Hosted providers are ready when a key is present (no network call). A keyless local provider is
+    ready when its server answers a TCP connect; when nothing is configured at all, the message lists
+    every way to get started.
+    """
+    from ..auth import is_configured
+
+    name = default_provider_name(config)
+    spec = get(name)
+    if spec is None:
+        return False, SETUP_HELP
+    if spec.key_required:
+        if is_configured(spec):
+            return True, ""
+        return False, SETUP_HELP
+    url = base_url_for(spec)
+    if reachable(url):
+        return True, ""
+    if any(s.key_required and is_configured(s) for s in all_specs()):
+        return False, f"{name} is not running at {url} (start it with `ollama serve`, or pick another provider with --provider)"
+    return False, SETUP_HELP
 
 
 def make_provider(name: str, config, transport=None) -> BaseProvider:
@@ -178,8 +230,12 @@ class ProviderPool:
         for spec in all_specs():
             if not is_configured(spec):
                 continue
+            url = base_url_for(spec)
+            if not spec.key_required and is_local_url(url) and not reachable(url):
+                self.list_errors[spec.name] = f"not running at {url} (start it with `ollama serve`)"
+                continue
             try:
                 out.extend(self.provider(spec.name).list_models(cancel_event=cancel_event))
             except ScootError as exc:
-                self.list_errors[spec.name] = str(exc)
+                self.list_errors[spec.name] = str(exc) + (f" ({exc.hint})" if getattr(exc, "hint", "") else "")
         return out

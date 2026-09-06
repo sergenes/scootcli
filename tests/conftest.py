@@ -15,9 +15,14 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def _isolated_environment():
+def _isolated_environment(monkeypatch):
     saved = dict(os.environ)
     tmp = tempfile.mkdtemp(prefix="scoot-test-")
+    # Run every test from an empty directory: Config.load walks up from the cwd looking for a
+    # project .env, and the repo's own .env (a developer's real keys) must never reach a test.
+    work = os.path.join(tmp, "cwd")
+    os.makedirs(work)
+    monkeypatch.chdir(work)
     os.environ["XDG_CONFIG_HOME"] = os.path.join(tmp, "xdg")
     os.environ["SCOOT_CONFIG_DIR"] = os.path.join(tmp, "config")
     os.environ["SCOOT_STATE_DIR"] = os.path.join(tmp, "state")

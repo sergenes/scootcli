@@ -21,6 +21,7 @@ from ..errors import (
     ContextLengthError,
     Interrupted,
     ModelUnavailableError,
+    NetworkError,
     QuotaError,
     RETRIABLE,
     RateLimitError,
@@ -321,12 +322,27 @@ class BaseProvider:
 
     # ── retry policy ─────────────────────────────────────────────────────────────
     def _with_retry(self, fn: Callable[[], ChatResult], cancel_event, emitted=None) -> ChatResult:
-        """Retry transient failures with capped, jittered backoff; never after tokens were printed."""
+        """Retry transient failures with capped, jittered backoff; never after tokens were printed.
+
+        A connection failure to a *local* server is not transient (nothing is listening), so it fails
+        at once with a hint about starting the server instead of burning the retry budget.
+        """
+        from .registry import is_local_url
+
         attempt = 0
         while True:
             attempt += 1
             try:
                 return fn()
+            except NetworkError as exc:
+                if is_local_url(self.spec.base_url):
+                    exc.hint = (f"{self.name} is not running at {self.spec.base_url}: start it "
+                                f"(`ollama serve`; install from https://ollama.com) or use another "
+                                f"provider (`scoot auth set openai`)")
+                    raise
+                if attempt >= _RETRY_ATTEMPTS or (emitted is not None and emitted[0]):
+                    raise
+                self._backoff(attempt, cancel_event)
             except RETRIABLE:
                 if attempt >= _RETRY_ATTEMPTS or (emitted is not None and emitted[0]):
                     raise

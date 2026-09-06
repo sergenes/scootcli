@@ -43,14 +43,19 @@ def status_rows(config) -> List[dict]:
     default = registry.default_provider_name(config)
     rows = []
     for spec in registry.all_specs():
-        rows.append({
+        url = registry.base_url_for(spec)
+        row = {
             "name": spec.name,
             "source": key_source(spec),
             "required": spec.key_required,
             "configured": is_configured(spec),
             "default": spec.name == default,
-            "base_url": registry.base_url_for(spec),
-        })
+            "base_url": url,
+            "reachable": None,  # only probed for keyless local servers
+        }
+        if not spec.key_required and registry.is_local_url(url):
+            row["reachable"] = registry.reachable(url)
+        rows.append(row)
     return rows
 
 
