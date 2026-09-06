@@ -79,6 +79,9 @@ class ReplSession:
         self.mascot_state = "idle"  # drives the mascot's eyes in the status bar: idle | thinking | stopped
         self.usage_by_model: dict = {}  # qualified model -> {"prompt": n, "completion": n, "calls": n}
         self.provider_ready = True  # False until a provider can take a request (see refresh_readiness)
+        from .tools.base import Scope
+
+        self.scope = Scope(config.root, everything=(getattr(config, "scope", "workspace") == "anywhere"))
         self.setup_message = ""  # what to do about it, shown in the banner and after failures
         self.route_reason = ""  # why the router picked the active model (auto only)
         # Persistence (auto-save each turn; resume via --continue/--resume).
@@ -411,6 +414,12 @@ class ReplUI:
     def approve(self, tool, args, ctx):
         self._commit_line()  # an approval prompt is interactive; don't let it clobber a transient
         return request_approval(tool, args, ctx)
+
+    def approve_scope(self, tool, path, ctx) -> str:
+        self._commit_line()
+        from .approvals import request_scope
+
+        return request_scope(tool, path, ctx)
 
     def auto_approved(self, tool, args) -> None:
         import json as _json

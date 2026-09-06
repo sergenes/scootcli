@@ -21,7 +21,7 @@ class WriteFile(Tool):
     }
 
     def _old_new(self, args, ctx):
-        path = safe_path(ctx.root, args.get("path"))
+        path = safe_path(ctx.root, args.get("path"), ctx.scope)
         old = path.read_text("utf-8", "replace") if path.exists() and path.is_file() else ""
         new = args.get("content") or ""
         return path, old, new

@@ -4,6 +4,9 @@ All notable changes to `scoot`. Format loosely follows [Keep a Changelog](https:
 Versions before 0.1.0 were internal builds of the tool's predecessor, renumbered `0.0.N` here and trimmed to what still describes the public tool.
 What comes next lives in [`ROADMAP.md`](./ROADMAP.md); the behaviour spec in [`SPEC.md`](./SPEC.md); design notes in [`DESIGN.md`](./DESIGN.md).
 
+## [Unreleased]
+- **The workspace is no longer a wall.** A file tool that needs a path outside the workspace asks once: allow this path, allow its directory for the session, allow anywhere for the session, skip, or abort. `--scope anywhere` / `SCOOT_SCOPE` / `/scope anywhere` skip the question, `--yes` implies it, `/scope` shows and changes grants, `/status` reports them; headless mode gets a `scope_request` event. `~` expands in paths. The system prompt tells the model to use absolute paths elsewhere instead of refusing or handing the user a script. Found on a real run where scoot wrote a script for the user to run because it believed it could not touch `~/.config`.
+
 ## [0.4.0] — hooks, headless mode, a first run that explains itself (2026-09-06)
 - **Hooks:** shell commands on `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `Notification`, and `SessionEnd`, configured in `~/.config/scoot/hooks.json` and `.scoot/hooks.json` with Claude Code-shaped payloads and decisions (allow, deny, ask, block, context, exit 2). `/hooks` lists them; `SCOOT_HOOKS=0` disables.
 - **Headless mode:** `scoot --headless` speaks line-delimited JSON on stdin and stdout (prompts, approvals, notes, interrupts, commands in; streamed text, tool calls, approval requests, results, plans, usage, errors, heartbeat out). Protocol version 1, documented in `docs/headless-protocol.md`; `SCOOT_APPROVAL_TIMEOUT` bounds unanswered approvals.

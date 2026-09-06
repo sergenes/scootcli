@@ -179,6 +179,7 @@ class Config:
     vision_model: str = "auto"  # provider/model for image descriptions, or "auto" → pick a capable one
     image_max_bytes: int = 4 * 1024 * 1024  # per-image cap (no downscale without a 3rd-party lib)
     editor: str = "idea"  # external editor for the open_editor tool: idea | vscode
+    scope: str = "workspace"  # where file tools may go: workspace (ask once outside it) | anywhere
     env_files: Tuple[str, ...] = ()  # the .env files that were read, in load order (shown by /status)
     logo: bool = True  # mascot in the launch banner + status-bar face (--no-logo / SCOOT_LOGO / /logo)
     emoji: bool = True  # 🛴 transcript label; off → ⏺ for terminals without an emoji font (--no-emoji)
@@ -216,6 +217,7 @@ class Config:
             vision_model=get("SCOOT_VISION_MODEL", "auto"),
             image_max_bytes=int(get("SCOOT_IMAGE_MAX_BYTES", str(4 * 1024 * 1024))),
             editor=get("SCOOT_EDITOR", "idea").strip().lower(),
+            scope=get("SCOOT_SCOPE", "workspace").strip().lower(),
             logo=_resolve_logo_setting(get("SCOOT_LOGO")),
             emoji=_as_bool(get("SCOOT_EMOJI", "true")),
         )

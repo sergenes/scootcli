@@ -59,6 +59,8 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="Don't inject the repo map (git + file tree) into the agent prompt.")
     parser.add_argument("--no-labels", action="store_true",
                         help="Hide the role labels/gutters (❯ you / ⏺ scoot) in the REPL transcript.")
+    parser.add_argument("--scope", choices=["workspace", "anywhere"],
+                        help="Where file tools may go: workspace (default; the first access outside it asks once) or anywhere.")
     parser.add_argument("--headless", action="store_true",
                         help="Line-delimited JSON on stdin/stdout instead of the REPL (see docs/headless-protocol.md).")
     parser.add_argument("--no-logo", action="store_true",
@@ -92,6 +94,7 @@ def _config_from_args(args: argparse.Namespace) -> Config:
         proxy=args.proxy,
         root=args.root,
         approval="yolo" if (args.yolo or args.yes) else args.approval,
+        scope="anywhere" if args.yes else args.scope,
         verbose=True if args.verbose else None,
         stream=False if args.no_stream else None,
         panel=False if args.no_panel else None,

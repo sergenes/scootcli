@@ -181,6 +181,8 @@ scoot --no-panel --no-dock           # plain prompt, no status bar (also what yo
 /model     list or switch model     /approve   set mode (always|auto-read|auto-edits|yolo)
 /yolo      auto-approve all         /worktree  isolate work in a git worktree
 /auth      provider keys            /logo      show or toggle the mascot
+/scope     where file tools may go   /hooks     configured hooks and results
+/route     how auto picks a model
 /sessions  list saved sessions      /resume    resume a saved session ([id])
 /forget    delete session(s)        /panel     toggle the bottom status bar
 /verbosity feed detail (full|compact|quiet)
@@ -198,7 +200,11 @@ Without a TTY, scoot falls back to a plain prompt with no bar and no dock.
 ### Tools and approvals
 
 The agent has eight tools: `read_file`, `list_dir`, `search`, `write_file`, `edit_file`, `run_shell`, `open_editor` (hands a file to IntelliJ IDEA's `idea -e` or to VS Code, `SCOOT_EDITOR` picks), and `update_plan` (a progress checklist for multi-step work).
-Every tool is sandboxed to the workspace root.
+Paths are resolved against the workspace root, and `~` works.
+
+The workspace is where the agent works, not a wall.
+When a tool needs a file outside it, in `~/.config`, another repo, `/etc`, scoot asks once: allow this path `[a]`, allow that directory for the session `[d]`, allow anywhere for the session `[A]`, skip `[s]`, or quit `[q]`.
+`--scope anywhere`, `SCOOT_SCOPE=anywhere`, or `/scope anywhere` skip the question; `/scope` shows what has been granted.
 
 When a call needs approval you can approve once `[a]`, trust that tool for the session `[t]`, approve everything this session `[A]`, edit the arguments `[e]`, skip `[s]`, or quit `[q]`.
 `/approve <mode>` sets how much runs without asking: `always` prompts for everything, `auto-read` auto-approves reads, `auto-edits` also auto-approves file edits, `yolo` runs everything.

@@ -25,7 +25,7 @@ class EditFile(Tool):
 
     def _compute(self, args, ctx):
         """Return (path, old_text, new_text). Raises ToolError on any problem."""
-        path = safe_path(ctx.root, args.get("path"))
+        path = safe_path(ctx.root, args.get("path"), ctx.scope)
         if not path.exists() or not path.is_file():
             raise ToolError(f"no such file: {args.get('path')}")
         old_string = args.get("old_string")

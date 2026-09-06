@@ -136,6 +136,32 @@ class HeadlessUI:
                              auto_approved=False, decision=str(msg.get("decision")).lower())
             return Approval(decision, new_args)
 
+    def approve_scope(self, tool, path, ctx) -> str:
+        req = self._call_id()
+        self.writer.emit("scope_request", id=req, name=tool.name, path=str(path),
+                         options=["allow_once", "allow_dir", "allow_all", "deny", "abort"], timeout_s=self.timeout)
+        mapping = {"allow_once": "once", "allow_dir": "dir", "allow_all": "all", "deny": "deny", "abort": "abort"}
+        deadline = time.time() + self.timeout
+        while True:
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                self.writer.emit("notice", message=f"scope request {req} timed out after {self.timeout:g}s; denied")
+                return "deny"
+            if self.cancel_event is not None and self.cancel_event.is_set():
+                return "abort"
+            try:
+                msg = self.answers.get(timeout=min(0.2, remaining))
+            except queue.Empty:
+                continue
+            if msg.get("id") not in (None, "", req):
+                self.writer.emit("error", message=f"answer for unknown request {msg.get('id')}", kind="protocol")
+                continue
+            verdict = mapping.get(str(msg.get("decision", "")).lower())
+            if verdict is None:
+                self.writer.emit("error", message=f"unknown scope decision {msg.get('decision')!r}; expected one of {list(mapping)}", kind="protocol")
+                continue
+            return verdict
+
     def plan(self, plan) -> None:
         self.writer.emit("plan", steps=plan)
 

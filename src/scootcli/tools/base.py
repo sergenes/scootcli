@@ -56,6 +56,53 @@ class ToolContext:
     root: Path
     config: Any = None
     cancel_event: Optional[threading.Event] = None
+    scope: "Optional[Scope]" = None  # where file tools may go beyond the workspace root
+
+
+class Scope:
+    """Where file tools may operate: the workspace root plus what the user granted this session.
+
+    The workspace is always allowed. The first access elsewhere asks the user once, who can allow
+    that path, its directory for the session, or anywhere for the session (``everything``).
+    """
+
+    def __init__(self, root, everything: bool = False):
+        self.root = Path(root).resolve()
+        self.granted: List[Path] = []
+        self.everything = everything
+
+    def allows(self, path) -> bool:
+        p = Path(path).expanduser().resolve()
+        if self.everything or _inside(p, self.root):
+            return True
+        return any(_inside(p, g) for g in self.granted)
+
+    def grant(self, path) -> Path:
+        p = Path(path).expanduser().resolve()
+        if p not in self.granted:
+            self.granted.append(p)
+        return p
+
+    def grant_dir(self, path) -> Path:
+        p = Path(path).expanduser().resolve()
+        return self.grant(p if p.is_dir() else p.parent)
+
+    def grant_all(self) -> None:
+        self.everything = True
+
+    def describe(self) -> str:
+        if self.everything:
+            return "anywhere on this machine (for this session)"
+        extra = f" + {len(self.granted)} granted" if self.granted else ""
+        return f"workspace {self.root}{extra}"
+
+
+def _inside(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+        return True
+    except ValueError:
+        return False
 
 
 @dataclass
@@ -89,6 +136,13 @@ class Tool:
         """Optional rich preview shown at approval time (e.g. a diff). ``None`` = args-only."""
         return None
 
+    def paths(self, args: dict) -> "list[str]":
+        """The filesystem paths a call touches, for the scope check before it runs.
+
+        Default: the ``path`` and ``cwd`` arguments. A tool with other path arguments overrides this.
+        """
+        return [str(args[k]) for k in ("path", "cwd") if isinstance(args.get(k), str) and args.get(k)]
+
     def schema(self) -> dict:
         """OpenAI-style function schema for the ``tools`` request param."""
         return {
@@ -102,20 +156,31 @@ class Tool:
 
 
 # ── Sandboxing ─────────────────────────────────────────────────────────────────
-def safe_path(root: Path, raw: str) -> Path:
-    """Resolve ``raw`` against ``root`` and ensure it stays inside it. Raises PathEscapeError."""
+def resolve_path(root: Path, raw: str) -> Path:
+    """``raw`` as an absolute path: ``~`` expanded, relative paths taken from ``root``."""
     if raw is None:
         raise ToolError("missing 'path'")
-    root = root.resolve()
-    p = Path(raw)
+    p = Path(str(raw)).expanduser()
     if not p.is_absolute():
-        p = root / p
-    p = p.resolve()
-    try:
-        p.relative_to(root)
-    except ValueError:
-        raise PathEscapeError(f"path escapes workspace root: {raw}")
-    return p
+        p = Path(root).resolve() / p
+    return p.resolve()
+
+
+def safe_path(root: Path, raw: str, scope: "Optional[Scope]" = None) -> Path:
+    """Resolve ``raw`` and check it is inside the workspace or granted by ``scope``.
+
+    Raises :class:`PathEscapeError` (carrying ``.path``) otherwise; the agent turns that into a
+    question to the user rather than a refusal.
+    """
+    p = resolve_path(root, raw)
+    if scope is not None:
+        if scope.allows(p):
+            return p
+    elif _inside(p, Path(root).resolve()):
+        return p
+    exc = PathEscapeError(f"outside the workspace: {p} (the user can allow it)")
+    exc.path = p
+    raise exc
 
 
 # ── Truncation ─────────────────────────────────────────────────────────────────

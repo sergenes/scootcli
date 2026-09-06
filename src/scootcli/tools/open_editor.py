@@ -88,7 +88,7 @@ class OpenEditor(Tool):
         if not raw:
             return ToolResult.fail("missing 'path'")
         try:
-            path = safe_path(ctx.root, raw)
+            path = safe_path(ctx.root, raw, ctx.scope)
         except ToolError as exc:
             return ToolResult.fail(str(exc))
         if not path.exists():

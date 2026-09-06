@@ -25,7 +25,7 @@ class ReadFile(Tool):
 
     def run(self, args: dict, ctx: ToolContext) -> ToolResult:
         try:
-            path = safe_path(ctx.root, args.get("path"))
+            path = safe_path(ctx.root, args.get("path"), ctx.scope)
         except ToolError as exc:
             return ToolResult.fail(str(exc))
         if not path.exists():
