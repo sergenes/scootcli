@@ -31,6 +31,10 @@ Detailed plan: `docs/plans/0.4.0-hooks-and-headless.md`.
 - **Hooks**: shell commands on lifecycle events (`SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `Notification`, `SessionEnd`) with JSON payloads on stdin and decisions on stdout, configured in `~/.config/scoot/hooks.json` and `.scoot/hooks.json`. Payload shapes follow the de-facto standard set by Claude Code so existing hook scripts work with little change. `/hooks` lists them; `SCOOT_HOOKS=0` disables.
 - **Headless mode**: `scoot --headless`, line-delimited JSON over stdin and stdout: prompts, notes, and approval answers in; streamed text, tool calls, approval requests, results, plan updates, usage, and errors out. Same sessions, tools, approvals, and hooks as the REPL. Versioned protocol.
 
+## 0.5.0: scope (released 2026-09-06)
+
+The workspace is the default, not a wall: a file tool that needs a path outside it asks once (this path, its directory, anywhere), with `--scope anywhere` / `/scope` to skip or manage; headless `scope_request`. Found on a real Linux run.
+
 ## Later, as configuration rows
 
 - xAI (Grok), Groq, OpenRouter, LM Studio, vLLM: each is a `ProviderSpec` once its Responses or Chat Completions support is checked.
