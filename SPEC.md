@@ -40,7 +40,8 @@ An invalid rules file is reported by `/route` and the built-in heuristic applies
 3.3 `scoot auth set <provider>` reads a key with hidden input, validates it by listing the provider's models, and only then saves it with directory mode `0700` and file mode `0600`.
 3.4 `scoot auth clear <provider>` forgets the saved key and says so when a key from the environment still applies.
 3.5 Keys are never printed; key-shaped strings (`sk-…`, GitHub tokens, Bearer values, JWTs) are redacted from all output, including error messages and saved sessions.
-3.6 When the default provider requires a key and none is found, the REPL still opens and prints one hint line.
+3.6 When no provider can take a request (no key for a hosted provider, or the local server does not answer a TCP probe), the REPL still opens: the banner's first line says "no provider set up yet", a setup block listing `scoot auth set openai`, `scoot auth set anthropic`, and `ollama pull llama3.2` prints under the banner, the status bar shows `not set up` and `none · run /auth`, and one-shot mode prints the same block and exits 1.
+Readiness is checked for the provider of the active model, at start and again after `/auth set`, `/auth clear`, and `/model`; when a hosted key exists but the chosen local server is down, the message points at `/model` or `--provider` instead.
 
 ## 4. Configuration
 
@@ -89,7 +90,7 @@ The default is `yolo`.
 8.1 The banner shows the mascot with the version, active model, workspace root, a resume hint or the resumed session, and key hints; `--no-logo` shows a plain box.
 8.2 Input is a fixed bottom dock with full line editing, history recall, bracketed paste, growth up to six rows for long lines, and Tab completion of slash commands; without a TTY, a plain prompt is used.
 8.2a The spinner shows the elapsed time after three seconds and, after thirty, a reminder that Ctrl-C forces a stop.
-8.3 The bottom status bar shows the mascot face (eyes: `o o` idle, `> >` thinking, `- -` stopped), provider identity, folder and session id, model, approval mode, context size and its share of the compaction threshold, cumulative tokens, message count, worktree branch, plan progress, and the last error.
+8.3 The bottom status bar shows the mascot face (eyes: `o o` idle, `> >` thinking, `- -` stopped), the provider serving the active model (or `not set up`), folder and session id, model (or `none · run /auth`), approval mode, context size and its share of the compaction threshold, cumulative tokens, message count, worktree branch, plan progress, and the last error.
 8.4 Turns are labelled `❯` for the user and `🛴 scoot` for the assistant (`⏺ scoot` with `--no-emoji`); the assistant label prints once per turn.
 8.5 `/verbosity full|compact|quiet` controls whether reasoning narration and tool lines stay in the feed.
 8.6 `/c` or Ctrl-S copies the last answer to the clipboard through `pbcopy`, `wl-copy`, `xclip`, `xsel`, or an OSC-52 escape.
@@ -121,3 +122,25 @@ Each is a drop-in module in `commands/`.
 12.1 One-shot mode prints the final answer and exits 0 on success, 1 on error; `--json` prints `{status, model, steps, content, error, usage}`.
 12.2 `--verbose` adds the model, step count, and token usage on stderr.
 12.3 Ctrl-C quits with exit code 130.
+
+## 13. Hooks
+
+13.1 Hooks are shell commands run at lifecycle events with a JSON payload on stdin: `SessionStart` (`source`: startup, resume, reset), `UserPromptSubmit` (`prompt`), `PreToolUse` (`tool_name`, `tool_input`, `tool_kind`), `PostToolUse` (plus `tool_response`: `ok`, `summary`, `error`, bounded `content`), `Stop` (`last_assistant_message`, `steps`, `usage`), `Notification` (`kind`: approval, max_steps, error; `message`), `SessionEnd` (`reason`).
+Common fields: `session_id`, `cwd`, `hook_event_name`, `model`, `transcript_path`.
+13.2 Configuration is `hooks.json` in the config directory (global) merged with `.scoot/hooks.json` under the workspace (project first), in the shape `{"Event": [{"matcher": "regex", "hooks": [{"type": "command", "command": "...", "timeout": 60}]}]}`; a top-level `hooks` key wrapping that object is accepted.
+`matcher` applies to `tool_name` for `PreToolUse` and `PostToolUse`.
+13.3 A hook decides with its exit code or JSON on stdout: exit 0 with empty stdout is no decision; exit 0 with `{"permissionDecision": "allow" | "deny" | "ask"}` (PreToolUse) or `{"decision": "block", "reason": ...}` (UserPromptSubmit, Stop) is that decision; exit 2 blocks or denies with stderr as the reason; plain stdout text is context; any other exit or a timeout is logged and ignored.
+Hooks run sequentially and the first blocking decision wins.
+13.4 Effects: a denied `PreToolUse` skips the tool and feeds `user declined via hook: <reason>` back to the model; `allow` skips scoot's own approval prompt; `ask` forces it even in `yolo`; a blocked `UserPromptSubmit` drops the prompt with the reason shown; context from `UserPromptSubmit` is appended to the prompt; a blocking `Stop` makes the agent continue with the reason as a user message, at most three times per turn.
+13.5 Hooks run with the workspace as working directory and `SCOOT_SESSION_ID` and `SCOOT_HOOK_EVENT` in the environment; they never receive API keys.
+`SCOOT_HOOKS=0` disables all hooks; `/hooks` lists the configuration and recent results, `/hooks reload` re-reads the files.
+13.6 The REPL, one-shot mode, and headless mode fire the same events.
+
+## 14. Headless mode
+
+14.1 `scoot --headless` reads one JSON object per line on stdin and writes one JSON object per line on stdout, nothing else on stdout; diagnostics go to stderr; the protocol is versioned (`ready.protocol`, currently 1) and only grows within a major version.
+14.2 Input types: `prompt` (`text`, optional `images`), `approve` (`id`, `decision` among allow, allow_tool, allow_session, deny, abort; optional `args`), `note` (`text`, delivered as a user message at the next model call), `interrupt`, `command` (`name`, `args`), `shutdown`; closing stdin is a shutdown.
+14.3 Output types: `ready`, `turn_start`, `activity`, `text_delta`, `assistant` (`final`), `tool_call`, `approval_request` (`id`, `name`, `args`, `kind`, `preview`, `options`, `timeout_s`), `tool_result`, `plan`, `turn_end` (`status` among done, interrupted, aborted, max_steps, error, blocked; `steps`, `model`, `usage`, `content`, `error`), `notice`, `command_output`, `error` (`kind` among protocol, turn, command, setup), `heartbeat` every 10 seconds, `bye`.
+14.4 Approvals follow the REPL's decision path; an unanswered request is denied after `SCOOT_APPROVAL_TIMEOUT` seconds (default 120).
+14.5 With no provider ready, headless mode emits one `error` of kind `setup` and exits 1; a bad input line is reported as a `protocol` error and skipped; a slash command's printed output is returned in `command_output`.
+14.6 Sessions, compaction, routing, tools, and hooks behave as in the REPL; the status bar, dock, and mascot are off.

@@ -69,6 +69,9 @@ def build_status_text(session, user: Optional[str] = None) -> str:
     model = session.active_model or session.resolved_model()
     if session.model.lower() == "auto":
         model += " (auto)"
+    if not getattr(session, "provider_ready", True):
+        model = "none · run /auth"
+        user = "not set up"
     spent = session.total_prompt + session.total_completion
     ctx = int((getattr(session, "last_usage", None) or {}).get("prompt_tokens", 0) or 0)
     if not ctx:

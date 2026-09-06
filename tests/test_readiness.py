@@ -132,3 +132,49 @@ def test_session_without_an_assistant_reply_is_not_saved(monkeypatch, tmp_path):
     s.messages.append({"role": "assistant", "content": "hello"})
     s.autosave()
     assert sessions.latest_for_root(str(tmp_path)) is not None
+
+
+def test_readiness_follows_the_active_models_provider(monkeypatch, tmp_path):
+    _isolate(monkeypatch, tmp_path)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-000000000000")
+    monkeypatch.setattr(registry, "reachable", lambda url, timeout=0.3: False)
+    assert registry.readiness(Config()) == (True, "")                       # default provider has a key
+    ready, msg = registry.readiness(Config(), model="ollama/llama3.2")     # but this model needs ollama
+    assert ready is False and "ollama is not running" in msg
+
+
+def test_status_bar_and_banner_never_show_a_provider_that_is_not_set_up(monkeypatch, tmp_path):
+    _isolate(monkeypatch, tmp_path)
+    monkeypatch.setenv("SCOOT_OLLAMA_BASE_URL", f"http://127.0.0.1:{_dead_port()}")
+    from scootcli.panel import build_status_text
+    from scootcli.repl import ReplSession
+
+    s = ReplSession(Config().override(root=str(tmp_path)), provider=None)
+    assert s.refresh_readiness() is False and "scoot auth set openai" in s.setup_message
+    s.id = "20260906-000000-ab12"
+    text = build_status_text(s, user="ollama")
+    assert "not set up" in text and "none · run /auth" in text and "llama3.2" not in text
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-000000000000")
+    s.active_model = s.resolved_model()
+    assert s.refresh_readiness() is True and "openai/gpt-5.3-codex" in build_status_text(s, user="openai")
+
+
+def test_dead_local_server_hint_names_both_hosted_providers_when_none_is_set_up(monkeypatch, tmp_path):
+    _isolate(monkeypatch, tmp_path)
+
+    class _Dead:
+        def request(self, *a, **k):
+            raise NetworkError("connection failed")
+
+    p = registry.make_provider("ollama", Config(), transport=_Dead())
+    try:
+        p.chat([{"role": "user", "content": "hi"}], model="llama3.2")
+        assert False
+    except NetworkError as exc:
+        assert "scoot auth set openai" in exc.hint and "scoot auth set anthropic" in exc.hint
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-000000000000")
+    try:
+        p.chat([{"role": "user", "content": "hi"}], model="llama3.2")
+        assert False
+    except NetworkError as exc:
+        assert "/model" in exc.hint and "scoot auth set openai" not in exc.hint

@@ -97,6 +97,7 @@ class Agent:
         self._refresh_workspace(session, cfg)
         steps = 0
         compacted = False
+        stop_blocks = 0
         while True:
             if cancel_event.is_set():
                 return AgentOutcome("interrupted", steps=steps)
@@ -144,10 +145,16 @@ class Agent:
                     return AgentOutcome(status, steps=steps)
                 continue
 
-            # No tool calls -> the model is done.
-            return AgentOutcome(
-                "done", content=_strip_done(result.content), steps=steps, streamed=streamed
-            )
+            # No tool calls -> the model is done, unless a Stop hook asks for more (bounded).
+            content = _strip_done(result.content)
+            if stop_blocks < 3:
+                reason = self._stop_hook(session, content, steps)
+                if reason:
+                    stop_blocks += 1
+                    session.messages.append({"role": "user", "content": reason})
+                    ui.assistant(f"continuing: {reason}")
+                    continue
+            return AgentOutcome("done", content=content, steps=steps, streamed=streamed)
 
     # ── model call (streaming or buffered) ───────────────────────────────────────
     def _model_call(self, session, cfg, ui, cancel_event, steps):
@@ -180,6 +187,45 @@ class Agent:
                 hints=hints,
             )
         return result, False
+
+    # ── hooks ────────────────────────────────────────────────────────────────────
+    @staticmethod
+    def _hooks(session):
+        from .hooks import for_session
+
+        return for_session(session)
+
+    def _stop_hook(self, session, content: str, steps: int) -> str:
+        hooks = self._hooks(session)
+        if hooks is None or not hooks.has("Stop"):
+            return ""
+        payload = hooks.payload(session, "Stop", last_assistant_message=content, steps=steps,
+                                usage=getattr(session, "last_usage", {}) or {})
+        decision = hooks.run("Stop", payload)
+        return (decision.reason or "the Stop hook asked to continue") if decision.blocks else ""
+
+    def _pre_tool_hook(self, session, tool, args, cancel_event) -> "tuple[str, str]":
+        hooks = self._hooks(session)
+        if hooks is None or not hooks.has("PreToolUse"):
+            return "", ""
+        from .hooks import tool_kind
+
+        payload = hooks.payload(session, "PreToolUse", tool_name=tool.name, tool_input=args,
+                                tool_kind=tool_kind(tool))
+        decision = hooks.run("PreToolUse", payload, cancel_event)
+        return decision.action, decision.reason
+
+    def _post_tool_hook(self, session, tool, args, result: ToolResult) -> None:
+        hooks = self._hooks(session)
+        if hooks is None or not hooks.has("PostToolUse"):
+            return
+        from .hooks import tool_kind
+
+        response = {"ok": result.ok, "summary": result.summary or "", "error": result.error or "",
+                    "content": (result.content or "")[:4000]}
+        hooks.run("PostToolUse", hooks.payload(session, "PostToolUse", tool_name=tool.name,
+                                               tool_input=args, tool_kind=tool_kind(tool),
+                                               tool_response=response))
 
     @staticmethod
     def _last_user_text(session) -> str:
@@ -236,6 +282,13 @@ class Agent:
 
     def _messages(self, session, cfg=None) -> List[dict]:
         cfg = cfg or getattr(session, "config", None) or self.config
+        notes = getattr(session, "pending_notes", None)
+        if notes:
+            joined = "\n".join(n for n in notes if n)
+            notes.clear()
+            if joined:
+                session.messages.append({"role": "user",
+                                         "content": "Note from the user while you work:\n" + joined})
         system = build_agent_system_prompt(
             root=cfg.root,
             model=session.active_model,
@@ -315,11 +368,25 @@ class Agent:
                 self._append_tool(session, tc_id, f"error: unknown tool '{name}'")
                 continue
 
+            # A PreToolUse hook may deny (skip the tool), allow (skip the prompt), or ask (force it).
+            hook_action, hook_reason = self._pre_tool_hook(session, tool, args, cancel_event)
+            if hook_action == "deny":
+                self._append_tool(session, tc_id, f"user declined via hook: {hook_reason or 'no reason given'}")
+                ui.tool_result(name, ToolResult(ok=False, summary=f"denied by hook: {hook_reason}"[:80]))
+                continue
             # Approval policy: auto-approve when the mode/trust allows it, else prompt.
-            if needs_prompt(mode, tool, args, trusted) is None:
+            must_prompt = needs_prompt(mode, tool, args, trusted)
+            if hook_action == "allow":
+                must_prompt = None
+            elif hook_action == "ask":
+                must_prompt = hook_reason or "hook asked for confirmation"
+            if must_prompt is None:
                 if not getattr(tool, "auto_approve", False):
                     ui.auto_approved(tool, args)  # meta tools render their own output
             else:
+                from .hooks import notify
+
+                notify(session, "approval", f"{name} needs approval: {must_prompt}")
                 approval = ui.approve(tool, args, ctx)
                 if approval.decision == Decision.ABORT:
                     self._append_tool(session, tc_id, "user aborted the operation")
@@ -347,6 +414,7 @@ class Agent:
                 result = ToolResult.fail(f"tool crashed: {exc}")
 
             self._handle_result(session, name, result, ui)
+            self._post_tool_hook(session, tool, args, result)
             payload = result.content if result.ok else f"ERROR: {result.error}"
             self._append_tool(session, tc_id, payload or "(no output)")
         return None

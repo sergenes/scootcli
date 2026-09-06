@@ -78,6 +78,8 @@ class ReplSession:
         self.last_output = ""  # plain-text of the last assistant answer (for /c + Ctrl-S copy)
         self.mascot_state = "idle"  # drives the mascot's eyes in the status bar: idle | thinking | stopped
         self.usage_by_model: dict = {}  # qualified model -> {"prompt": n, "completion": n, "calls": n}
+        self.provider_ready = True  # False until a provider can take a request (see refresh_readiness)
+        self.setup_message = ""  # what to do about it, shown in the banner and after failures
         self.route_reason = ""  # why the router picked the active model (auto only)
         # Persistence (auto-save each turn; resume via --continue/--resume).
         from . import sessions
@@ -132,6 +134,17 @@ class ReplSession:
         self.total_completion = record.total_completion
         self.messages = list(record.messages)
         self.resumed = True
+
+    def refresh_readiness(self) -> bool:
+        """Re-check whether the active model's provider can take a request (cheap: a key check, or
+        one TCP probe for a local server). Called at start and after /auth and /model."""
+        from .providers.registry import readiness
+
+        try:
+            self.provider_ready, self.setup_message = readiness(self.config, self.active_model)
+        except Exception as exc:
+            self.provider_ready, self.setup_message = False, str(exc)
+        return self.provider_ready
 
     def _may_adopt_saved_model(self, model: str, active_model: str) -> bool:
         from .config import DEFAULT_MODEL_ALIAS, is_model_alias
@@ -459,6 +472,9 @@ class Repl:
             completer=self._command_names,
         )
         self.session.status_bar = self.bar  # let the /panel command reach it
+        from .hooks import Hooks
+
+        self.session.hooks = Hooks(config.root)
         self.session.ui = self.ui  # let the /verbosity command reach the feed renderer
         self.session.dock = self.dock  # surfaced in /status
         self.session.redraw_home = self._redraw_home  # let commands clear+reprint the header (e.g. /reset)
@@ -516,13 +532,23 @@ class Repl:
             sys.stdout.write("\033[2J\033[3J\033[H")  # clear screen + scrollback, cursor home
             sys.stdout.flush()
         self.bar.install()
+        self.session.refresh_readiness()
         self._banner()
+        if not self.session.provider_ready:
+            for line in self.session.setup_message.splitlines():
+                print(color(line, "yellow"))
         if self.session.resumed:
             self._replay_transcript()
+        from .hooks import session_event
+
+        session_event(self.session, "SessionStart", source="resume" if self.session.resumed else "startup")
+        code = 1
         try:
-            return self._loop()
+            code = self._loop()
+            return code
         finally:
             self.bar.remove()
+            session_event(self.session, "SessionEnd", reason="quit" if code == 0 else f"exit {code}")
 
     def _loop(self) -> int:
         while True:
@@ -566,6 +592,9 @@ class Repl:
         msg = redact(str(exc)) or kind
         self.session.last_error = kind if isinstance(exc, ScootError) else f"{kind}"
         self._refresh_bar()  # surface the failure in the status bar (cleared when the next turn starts)
+        from .hooks import notify
+
+        notify(self.session, "error", f"{kind}: {msg}"[:300])
         if isinstance(exc, ScootError):
             print(color(f"⚠ {msg}", "red"))
         else:
@@ -578,13 +607,14 @@ class Repl:
                 print(color("  (run with --verbose or set SCOOT_VERBOSE=1 for a traceback)", "gray"))
 
     def _auth_user(self):
-        """Status-bar identity: the default provider, flagged when it still lacks a key."""
+        """Status-bar identity: the provider serving the active model, or a plain 'not set up'."""
+        if not getattr(self.session, "provider_ready", True):
+            return "not set up · /auth"
         try:
-            from .auth import is_configured
+            from .providers.base import split_model_id
 
-            pool = self.session.provider
-            name = pool.default_name
-            return name if is_configured(pool.spec) else f"{name} (no key)"
+            head, _ = split_model_id(self.session.active_model)
+            return head or self.session.provider.default_name
         except Exception:
             return None
 
@@ -628,6 +658,7 @@ class Repl:
 
     def _refresh_bar(self) -> None:
         try:
+            self._user = self._auth_user()
             self.bar.render(build_status_text(self.session, self._user))
         except Exception:
             pass  # the bar must never break the REPL
@@ -661,7 +692,9 @@ class Repl:
     def _banner_lines(self, note: str = None) -> "list[str]":
         """The banner's information lines (uncoloured): what/where, resume state, key hints."""
         cfg = self.session.config
-        lines = [f"{self.session.active_model} · root: {logo.tilde(cfg.root)}"]
+        where = (self.session.active_model if getattr(self.session, "provider_ready", True)
+                 else "no provider set up yet")
+        lines = [f"{where} · root: {logo.tilde(cfg.root)}"]
         if note:
             lines.append(note)
         elif self.session.resumed:
@@ -733,6 +766,15 @@ class Repl:
         session.mascot_state = "thinking"  # eyes: > >
         self._refresh_bar()
         try:
+            from .hooks import submit_prompt
+
+            submitted = submit_prompt(session, user_text)
+            if submitted is None:
+                session.mascot_state = "stopped"
+                reason = getattr(session, "hook_block_reason", "") or "a UserPromptSubmit hook blocked it"
+                print(color(f"⏹ prompt not sent: {reason}", "yellow"))
+                return
+            user_text = submitted
             try:
                 user_text = self._maybe_fold_images(user_text)
             except Interrupted:
@@ -757,6 +799,9 @@ class Repl:
     def _ask_continue(self) -> bool:
         """After hitting the step limit, ask whether to keep going (interactive only)."""
         limit = self.session.config.max_steps
+        from .hooks import notify
+
+        notify(self.session, "max_steps", f"reached the step limit ({limit}); waiting for the user")
         try:
             ans = input(color(
                 f"reached step limit ({limit}). continue for another {limit} steps? [y/N] ",

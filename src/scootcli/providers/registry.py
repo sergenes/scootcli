@@ -116,8 +116,18 @@ SETUP_HELP = (
 )
 
 
-def readiness(config) -> Tuple[bool, str]:
-    """Whether the default provider can take a request now, and a message when it cannot.
+SETUP_HINT = ("set up a provider: `scoot auth set openai` or `scoot auth set anthropic` (hosted), "
+              "or `ollama pull llama3.2` after installing https://ollama.com (local)")
+
+
+def any_hosted_configured() -> bool:
+    from ..auth import is_configured
+
+    return any(s.key_required and is_configured(s) for s in all_specs())
+
+
+def readiness(config, model: Optional[str] = None) -> Tuple[bool, str]:
+    """Whether the provider that will serve ``model`` (or the default one) can take a request now.
 
     Hosted providers are ready when a key is present (no network call). A keyless local provider is
     ready when its server answers a TCP connect; when nothing is configured at all, the message lists
@@ -125,7 +135,8 @@ def readiness(config) -> Tuple[bool, str]:
     """
     from ..auth import is_configured
 
-    name = default_provider_name(config)
+    head, _ = split_model_id(model) if model else (None, "")
+    name = head if head and get(head) is not None else default_provider_name(config)
     spec = get(name)
     if spec is None:
         return False, SETUP_HELP
@@ -136,7 +147,7 @@ def readiness(config) -> Tuple[bool, str]:
     url = base_url_for(spec)
     if reachable(url):
         return True, ""
-    if any(s.key_required and is_configured(s) for s in all_specs()):
+    if any_hosted_configured():
         return False, f"{name} is not running at {url} (start it with `ollama serve`, or pick another provider with --provider)"
     return False, SETUP_HELP
 

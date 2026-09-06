@@ -69,6 +69,7 @@ def _set(session, name: str) -> None:
     if pool is not None and hasattr(pool, "_providers"):
         pool._providers.pop(name, None)  # rebuild with the new key on next use
     print(color(f"✔ {name} key saved to {path} (owner-only).", "green"))
+    _after_change(session)
 
 
 def _clear(session, name: str) -> None:
@@ -80,6 +81,7 @@ def _clear(session, name: str) -> None:
         print(color(f"forgot the saved {name} key.", "green"))
     else:
         print(color(f"no saved {name} key.", "gray"))
+    _after_change(session)
     pool = getattr(session, "provider", None)
     if pool is not None and hasattr(pool, "_providers"):
         pool._providers.pop(name, None)
@@ -88,6 +90,20 @@ def _clear(session, name: str) -> None:
         print(color(f"  note: {name} still has a key from {src} (not managed by scoot).", "gray"))
     elif spec.key_required:
         print(color(f"  {missing_key_hint(spec)}", "gray"))
+
+
+def _after_change(session) -> None:
+    """A key came or went: the default provider may have changed, so re-resolve and re-check."""
+    try:
+        if session.model.lower() in ("default", "auto"):
+            session.active_model = session.resolved_model()
+        session._available = None  # the model list depends on which providers are configured
+        if session.refresh_readiness():
+            print(color(f"ready: {session.active_model}", "gray"))
+        else:
+            print(color(session.setup_message, "yellow"))
+    except Exception:
+        pass
 
 
 def _run(session, args: str):

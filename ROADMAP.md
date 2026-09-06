@@ -23,7 +23,7 @@ The Anthropic Messages API adapter on the provider layer, live-verified on `clau
 - ✅ **Routing** (2026-09-06). `providers/router.py`: `auto` is opt-in and routes once per turn from a classifier (optional), then `router.json` rules, then a default, then the built-in heuristic. Design note: routing is a model chooser at turn start rather than a provider wrapper, because a turn must stay on one model for reasoning and thinking replay to work; the pool still dispatches by prefix.
 - ✅ Per-model spend in `/status`, `/route` explains decisions.
 
-## 0.4.0: hooks and headless mode
+## 0.4.0: hooks and headless mode (code done 2026-09-06, not yet released)
 
 The standard machine interfaces of a coding agent, so editors, automation, and remote-control tools can drive scoot without scraping its terminal.
 Detailed plan: `docs/plans/0.4.0-hooks-and-headless.md`.

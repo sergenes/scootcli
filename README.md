@@ -36,10 +36,17 @@ The naive version did real work in my repos for long enough that the next step w
 ## Quick start
 
 ```bash
-pipx install scootcli            # or: pip install scootcli
+pipx install scootcli && pipx ensurepath   # then open a new terminal so `scoot` is on PATH
 scoot auth set openai            # paste your OpenAI API key once (hidden input, validated, stored 0600)
 cd ~/code/your-project
 scoot                            # open the REPL
+```
+
+No pipx yet? On Debian, Ubuntu, and Pop!_OS it is `sudo apt install pipx`; on macOS `brew install pipx`.
+Or skip pipx entirely with the one-line installer, which needs only `curl` and Python 3.9+:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sergenes/scootcli/main/install.sh | bash
 ```
 
 Or run entirely local with [Ollama](https://ollama.com), no key at all:
@@ -48,6 +55,9 @@ Or run entirely local with [Ollama](https://ollama.com), no key at all:
 ollama pull llama3.2
 scoot --model ollama/llama3.2
 ```
+
+**First run.** With no key saved and no Ollama running, scoot still opens: the banner says "no provider set up yet", a short block lists the three ways to set one up, and the bar shows `not set up` until a provider can answer.
+Run `scoot auth set openai` (or `anthropic`) inside the REPL and the bar switches to the real provider and model at once.
 
 The first prompt:
 
@@ -202,6 +212,29 @@ Responses stream live and stay interruptible.
 Drag an image into the prompt and a vision-capable model describes it into the turn as text, so even a text-only coding model can act on it; `SCOOT_VISION_MODEL` pins the describer, `--no-images` turns the feature off.
 Every turn auto-saves under `~/.local/state/scoot/sessions/` (owner-only, secrets redacted, last 20 kept); `scoot --continue` or `/resume` picks up where you left off.
 
+### Automation: hooks and headless mode
+
+**Hooks** run your own scripts at lifecycle events: `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `Notification`, `SessionEnd`.
+A hook gets a JSON payload on stdin and answers with an exit code or JSON on stdout; the shapes follow the convention Claude Code established, so a script written for one works with the other.
+Put them in `~/.config/scoot/hooks.json` or `.scoot/hooks.json` in the project:
+
+```json
+{
+  "PreToolUse": [
+    {"matcher": "run_shell|write_file|edit_file", "hooks": [{"type": "command", "command": "~/bin/guard.py", "timeout": 30}]}
+  ],
+  "Stop": [{"hooks": [{"type": "command", "command": "~/bin/notify.sh"}]}]
+}
+```
+
+A `PreToolUse` hook can answer `{"permissionDecision": "deny", "reason": "..."}` to skip a tool (the model is told why), `allow` to skip the approval prompt, or `ask` to force one even in `yolo`; exit code 2 denies with stderr as the reason.
+A `Stop` hook that answers `{"decision": "block", "reason": "run the tests first"}` sends the agent back to work with that instruction, at most three times per turn.
+`/hooks` shows what is configured and what ran; `SCOOT_HOOKS=0` turns hooks off.
+
+**Headless mode** is for editors, automation, and remote-control tools: `scoot --headless` reads JSON lines on stdin (`prompt`, `approve`, `note`, `interrupt`, `command`, `shutdown`) and writes JSON lines on stdout (streamed text, tool calls, approval requests, results, plan updates, usage, errors, a heartbeat), with nothing else ever printed there.
+Same sessions, tools, approvals, routing, and hooks as the REPL.
+The message tables and a full transcript are in [`docs/headless-protocol.md`](./docs/headless-protocol.md); an unanswered approval is denied after `SCOOT_APPROVAL_TIMEOUT` seconds (default 120).
+
 ### The status bar
 
 The bottom row shows the mascot's face (its eyes follow the turn: `o o` idle, `> >` thinking, `- -` stopped), the provider, the workspace and session id, the model, the approval mode, context size against the auto-compact threshold, cumulative tokens, message count, and the last error if any.
@@ -209,7 +242,7 @@ The bottom row shows the mascot's face (its eyes follow the turn: `o o` idle, `>
 ## Install options
 
 ```bash
-pipx install scootcli                          # recommended: isolated, `scoot` on PATH
+pipx install scootcli && pipx ensurepath       # recommended: isolated; ensurepath puts ~/.local/bin on PATH for new shells
 curl -fsSL https://raw.githubusercontent.com/sergenes/scootcli/main/install.sh | bash   # no pipx: puts the zipapp at ~/.local/bin/scoot
 pip install scootcli                           # anywhere
 curl -LO https://github.com/sergenes/scootcli/releases/latest/download/scoot.pyz && python3 scoot.pyz  # single file, no install
@@ -217,6 +250,7 @@ git clone https://github.com/sergenes/scootcli && cd scootcli && pip install -e 
 ```
 
 The install script needs only `curl` and Python 3.9+. `SCOOT_VERSION=v0.2.0` pins a release and `SCOOT_INSTALL_DIR` changes the target; read it before you run it, it is sixty lines.
+Both pipx and the script install into `~/.local/bin`. On a fresh Linux account that directory is added to PATH at login only if it already exists, so after the very first install either open a new login shell or run `pipx ensurepath`; the installer prints the exact line for your shell.
 
 Requirements: Python 3.9 or newer on macOS or Linux.
 Nothing else: no compiler, no packages, no `curl`.

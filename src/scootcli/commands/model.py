@@ -40,6 +40,8 @@ def _run(session, args: str):
         set_model(arg)
         what = "picked per task from the live list" if arg == "auto" else f"the provider's preferred model, now {session.active_model}"
         print(color(f"model preference set to {arg} ({what}); saved for next launch.", "gray"))
+        if hasattr(session, "refresh_readiness") and not session.refresh_readiness():
+            print(color(session.setup_message, "yellow"))
         return
 
     if arg not in available:
@@ -55,6 +57,8 @@ def _run(session, args: str):
     session.active_model = arg
     set_model(arg)
     print(color(f"model set to {arg}; saved for next launch.", "gray"))
+    if hasattr(session, "refresh_readiness") and not session.refresh_readiness():
+        print(color(session.setup_message, "yellow"))
 
 
 register(SlashCommand("model", "list or switch model (default|auto|provider/model)", _run, usage="[provider/model|default|auto]"))

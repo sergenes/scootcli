@@ -59,6 +59,8 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="Don't inject the repo map (git + file tree) into the agent prompt.")
     parser.add_argument("--no-labels", action="store_true",
                         help="Hide the role labels/gutters (❯ you / ⏺ scoot) in the REPL transcript.")
+    parser.add_argument("--headless", action="store_true",
+                        help="Line-delimited JSON on stdin/stdout instead of the REPL (see docs/headless-protocol.md).")
     parser.add_argument("--no-logo", action="store_true",
                         help="Hide the mascot (launch banner art + status-bar face). Persist with /logo off.")
     parser.add_argument("--no-emoji", action="store_true",
@@ -154,6 +156,17 @@ def _run_once(config: Config, pool: ProviderPool, prompt: str, as_json: bool, re
     session = ReplSession(config, pool)
     if resume is not None:
         session.apply_record(resume)
+    from .hooks import Hooks, session_event, submit_prompt
+
+    session.hooks = Hooks(config.root)
+    session_event(session, "SessionStart", source="resume" if resume is not None else "startup")
+    submitted = submit_prompt(session, prompt)
+    if submitted is None:
+        reason = getattr(session, "hook_block_reason", "") or "a UserPromptSubmit hook blocked it"
+        eprint(color(f"⏹ prompt not sent: {reason}", "yellow"))
+        session_event(session, "SessionEnd", reason="blocked")
+        return 1
+    prompt = submitted
     # Fold any dropped image paths into the prompt (best-effort; no-op when none/disabled).
     try:
         from .vision import fold_images_into_text
@@ -166,6 +179,7 @@ def _run_once(config: Config, pool: ProviderPool, prompt: str, as_json: bool, re
     agent_config = config.override(stream=False) if as_json else config
     outcome = Agent(agent_config, pool).run_turn(session, ReplUI(), threading.Event())
     session.autosave()  # persist so `scoot -c` can continue this conversation
+    session_event(session, "SessionEnd", reason=outcome.status)
 
     if as_json:
         print(_json.dumps({
@@ -214,14 +228,8 @@ def _interactive(pool: ProviderPool, resume=None) -> int:
 
         resume = sessions.latest_for_root(str(config.root))
 
-    try:
-        from .providers.registry import readiness
-
-        ready, message = readiness(config)
-        if not ready:  # first-run onboarding: guide, but still open the REPL so /auth is usable
-            eprint(color(message, "yellow"))
-    except ScootError as exc:
-        eprint(color(f"⚠ {redact(str(exc))}", "yellow"))
+    # First-run onboarding happens inside the REPL (banner + a setup block), because anything printed
+    # here would be wiped by the screen clear the REPL does on start.
     return Repl(config, pool, resume=resume).run()
 
 
@@ -271,6 +279,13 @@ def main(argv: Optional[List[str]] = None) -> int:
 
         prompt = _resolve_prompt(args)
         resume = _resolve_resume(config, args)
+        if args.headless:
+            if prompt is not None:
+                eprint(color("--headless takes prompts on stdin, not as an argument.", "yellow"))
+                return 2
+            from .headless import run_headless
+
+            return run_headless(config.override(panel=False, dock=False, logo=False), pool, resume=resume)
         if prompt is not None:
             return _run_once(config, pool, prompt, args.json, resume=resume)
         return _interactive(pool, resume=resume)
