@@ -61,10 +61,11 @@ Each call receives the system prompt, the conversation, and the schemas of all r
 
 ## 6. Tools
 
-6.1 Built-in tools: `read_file`, `list_dir`, `search`, `write_file`, `edit_file`, `run_shell`, `update_plan`.
+6.1 Built-in tools: `read_file`, `list_dir`, `search`, `write_file`, `edit_file`, `run_shell`, `open_editor`, `update_plan`.
 6.2 Every path is resolved inside the workspace root; an escape attempt is rejected.
 6.3 `search` groups matches per file with bounded output; `edit_file` applies an exact replacement and reports a diff; `write_file` reports the diff against any existing content.
-6.4 `run_shell` executes with a timeout and captures bounded output; commands matching the denylist (recursive deletes of root paths, force pushes, piping downloads to a shell, disk formatting, and similar) require confirmation in every approval mode.
+6.4 `run_shell` executes with a timeout and captures bounded output; its child runs with stdin closed and pagers and interactive prompts disabled (`GIT_PAGER=cat`, `GIT_TERMINAL_PROMPT=0`, and similar), so a command that would wait for input fails fast instead of hanging; commands matching the denylist (recursive deletes of root paths, force pushes, piping downloads to a shell, disk formatting, and similar) require confirmation in every approval mode.
+6.4a `open_editor` opens a workspace file in an external editor, `idea -e` (IntelliJ LightEdit) by default or VS Code, as a detached process; the editor comes from the call, else `SCOOT_EDITOR`; it is approval-gated like `run_shell` and fails with an install hint when the launcher is missing.
 6.5 `update_plan` records a step checklist that the UI renders and the status bar counts; it never prompts.
 6.6 A tool is a drop-in module in `tools/` that calls `register`; the registry feeds both the API tool schemas and the tool list in the system prompt.
 
@@ -81,6 +82,7 @@ The default is `yolo`.
 
 8.1 The banner shows the mascot with the version, active model, workspace root, a resume hint or the resumed session, and key hints; `--no-logo` shows a plain box.
 8.2 Input is a fixed bottom dock with full line editing, history recall, bracketed paste, growth up to six rows for long lines, and Tab completion of slash commands; without a TTY, a plain prompt is used.
+8.2a The spinner shows the elapsed time after three seconds and, after thirty, a reminder that Ctrl-C forces a stop.
 8.3 The bottom status bar shows the mascot face (eyes: `o o` idle, `> >` thinking, `- -` stopped), provider identity, folder and session id, model, approval mode, context size and its share of the compaction threshold, cumulative tokens, message count, worktree branch, plan progress, and the last error.
 8.4 Turns are labelled `❯` for the user and `🛴 scoot` for the assistant (`⏺ scoot` with `--no-emoji`); the assistant label prints once per turn.
 8.5 `/verbosity full|compact|quiet` controls whether reasoning narration and tool lines stay in the feed.

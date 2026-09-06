@@ -4,6 +4,11 @@ All notable changes to `scoot`. Format loosely follows [Keep a Changelog](https:
 Versions before 0.1.0 were internal builds of the tool's predecessor, renumbered `0.0.N` here and trimmed to what still describes the public tool.
 What comes next lives in [`ROADMAP.md`](./ROADMAP.md); the behaviour spec in [`SPEC.md`](./SPEC.md); design notes in [`DESIGN.md`](./DESIGN.md).
 
+## [Unreleased]
+- **`open_editor` tool:** open a workspace file in IntelliJ IDEA (`idea -e`, LightEdit) or VS Code as a detached process; `SCOOT_EDITOR` sets the default, the model may pick per call; approval-gated like `run_shell`.
+- **`run_shell` never waits for input:** the child runs with stdin closed and pagers/prompts disabled (`GIT_PAGER=cat`, `GIT_TERMINAL_PROMPT=0`, …), so `git log` or an interactive installer fails fast instead of hanging the turn.
+- **Spinner timer:** the activity spinner shows elapsed time after 3 s and a "ctrl+c to force" reminder after 30 s.
+
 ## [0.1.0] — first public release (2026-09)
 
 The tool went public under a new name and on official APIs.

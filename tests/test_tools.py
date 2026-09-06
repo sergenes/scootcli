@@ -9,6 +9,7 @@ import tempfile
 from pathlib import Path
 
 from scootcli import tools
+from scootcli.config import Config
 from scootcli.tools.base import ToolContext, PathEscapeError, safe_path, truncate
 
 
@@ -32,9 +33,9 @@ def test_registry_has_expected_tools():
     tools.load_builtins()
     names = set(tools.all_tools())
     assert names == {"read_file", "list_dir", "search", "write_file", "edit_file", "run_shell",
-                     "update_plan"}
+                     "open_editor", "update_plan"}
     # schemas() and tool_list_text() derive from the same registry.
-    assert len(tools.schemas()) == 7
+    assert len(tools.schemas()) == 8
     assert "read_file:" in tools.tool_list_text().replace(" ", "")
 
 
@@ -193,6 +194,67 @@ def test_update_plan_is_auto_approved_even_in_always_mode():
     tools.load_builtins()
     tool = tools.get("update_plan")
     assert needs_prompt("always", tool, {"plan": []}) is None  # meta tool: never prompts
+
+
+def test_open_editor_missing_launcher_fails_cleanly():
+    # No editor launcher on PATH in CI → the tool reports a helpful error, never crashes.
+    import scootcli.tools.open_editor as oe
+
+    tools.load_builtins()
+    tool = tools.get("open_editor")
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        (root / "note.md").write_text("hi")
+        ctx = ToolContext(root=root, config=Config())
+        # nonexistent path is rejected before any launch attempt
+        assert tool.run({"path": "nope.md"}, ctx).ok is False
+        # force "launcher not found" regardless of the host by stubbing which()
+        orig = oe.shutil.which
+        oe.shutil.which = lambda _name: None
+        try:
+            res = tool.run({"path": "note.md", "editor": "vscode"}, ctx)
+        finally:
+            oe.shutil.which = orig
+        assert res.ok is False and "not found" in res.error
+
+
+def test_open_editor_editor_selection_and_default():
+    import scootcli.tools.open_editor as oe
+
+    tools.load_builtins()
+    tool = tools.get("open_editor")
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        (root / "a.txt").write_text("x")
+        launched = []
+        orig_which = oe.shutil.which
+        orig_popen = oe.subprocess.Popen
+        oe.shutil.which = lambda name: "/usr/bin/" + name
+        oe.subprocess.Popen = lambda cmd, **kw: launched.append(cmd) or None
+        try:
+            # default editor from config (idea) → "idea -e <path>"
+            ctx = ToolContext(root=root, config=Config())
+            assert tool.run({"path": "a.txt"}, ctx).ok is True
+            assert launched[-1][:2] == ["idea", "-e"]
+            # per-call override → vscode "code <path>"
+            assert tool.run({"path": "a.txt", "editor": "vscode"}, ctx).ok is True
+            assert launched[-1][0] == "code"
+        finally:
+            oe.shutil.which = orig_which
+            oe.subprocess.Popen = orig_popen
+
+
+def test_run_shell_uses_noninteractive_env_and_closed_stdin():
+    from scootcli.tools.base import noninteractive_env
+
+    env = noninteractive_env({"PATH": "/bin"})
+    assert env["GIT_PAGER"] == "cat" and env["GIT_TERMINAL_PROMPT"] == "0" and env["PATH"] == "/bin"
+    tools.load_builtins()
+    with tempfile.TemporaryDirectory() as d:
+        ctx = ToolContext(root=Path(d), config=Config())
+        # `cat` with no args reads stdin: with stdin closed it exits at once instead of hanging.
+        res = tools.get("run_shell").run({"command": "cat; echo done"}, ctx)
+        assert res.ok and "done" in res.content
 
 
 if __name__ == "__main__":
