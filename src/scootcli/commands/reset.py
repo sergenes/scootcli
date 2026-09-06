@@ -9,6 +9,9 @@ from .base import SlashCommand
 
 def _run(session, args: str):
     session.reset()
+    from ..hooks import session_event
+
+    session_event(session, "SessionStart", source="reset")
     redraw = getattr(session, "redraw_home", None)
     if callable(redraw):
         redraw("fresh session — conversation + context cleared.")

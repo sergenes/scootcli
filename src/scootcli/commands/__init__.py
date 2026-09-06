@@ -52,6 +52,7 @@ def load_builtins() -> None:
     from . import copy as _copy  # noqa: F401
     from . import logo as _logo  # noqa: F401
     from . import route as _route  # noqa: F401
+    from . import hooks as _hooks  # noqa: F401
 
     _loaded = True
 

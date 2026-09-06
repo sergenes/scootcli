@@ -154,6 +154,17 @@ def _run_once(config: Config, pool: ProviderPool, prompt: str, as_json: bool, re
     session = ReplSession(config, pool)
     if resume is not None:
         session.apply_record(resume)
+    from .hooks import Hooks, session_event, submit_prompt
+
+    session.hooks = Hooks(config.root)
+    session_event(session, "SessionStart", source="resume" if resume is not None else "startup")
+    submitted = submit_prompt(session, prompt)
+    if submitted is None:
+        reason = getattr(session, "hook_block_reason", "") or "a UserPromptSubmit hook blocked it"
+        eprint(color(f"⏹ prompt not sent: {reason}", "yellow"))
+        session_event(session, "SessionEnd", reason="blocked")
+        return 1
+    prompt = submitted
     # Fold any dropped image paths into the prompt (best-effort; no-op when none/disabled).
     try:
         from .vision import fold_images_into_text
@@ -166,6 +177,7 @@ def _run_once(config: Config, pool: ProviderPool, prompt: str, as_json: bool, re
     agent_config = config.override(stream=False) if as_json else config
     outcome = Agent(agent_config, pool).run_turn(session, ReplUI(), threading.Event())
     session.autosave()  # persist so `scoot -c` can continue this conversation
+    session_event(session, "SessionEnd", reason=outcome.status)
 
     if as_json:
         print(_json.dumps({

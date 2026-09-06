@@ -459,6 +459,9 @@ class Repl:
             completer=self._command_names,
         )
         self.session.status_bar = self.bar  # let the /panel command reach it
+        from .hooks import Hooks
+
+        self.session.hooks = Hooks(config.root)
         self.session.ui = self.ui  # let the /verbosity command reach the feed renderer
         self.session.dock = self.dock  # surfaced in /status
         self.session.redraw_home = self._redraw_home  # let commands clear+reprint the header (e.g. /reset)
@@ -519,10 +522,16 @@ class Repl:
         self._banner()
         if self.session.resumed:
             self._replay_transcript()
+        from .hooks import session_event
+
+        session_event(self.session, "SessionStart", source="resume" if self.session.resumed else "startup")
+        code = 1
         try:
-            return self._loop()
+            code = self._loop()
+            return code
         finally:
             self.bar.remove()
+            session_event(self.session, "SessionEnd", reason="quit" if code == 0 else f"exit {code}")
 
     def _loop(self) -> int:
         while True:
@@ -566,6 +575,9 @@ class Repl:
         msg = redact(str(exc)) or kind
         self.session.last_error = kind if isinstance(exc, ScootError) else f"{kind}"
         self._refresh_bar()  # surface the failure in the status bar (cleared when the next turn starts)
+        from .hooks import notify
+
+        notify(self.session, "error", f"{kind}: {msg}"[:300])
         if isinstance(exc, ScootError):
             print(color(f"⚠ {msg}", "red"))
         else:
@@ -733,6 +745,15 @@ class Repl:
         session.mascot_state = "thinking"  # eyes: > >
         self._refresh_bar()
         try:
+            from .hooks import submit_prompt
+
+            submitted = submit_prompt(session, user_text)
+            if submitted is None:
+                session.mascot_state = "stopped"
+                reason = getattr(session, "hook_block_reason", "") or "a UserPromptSubmit hook blocked it"
+                print(color(f"⏹ prompt not sent: {reason}", "yellow"))
+                return
+            user_text = submitted
             try:
                 user_text = self._maybe_fold_images(user_text)
             except Interrupted:
@@ -757,6 +778,9 @@ class Repl:
     def _ask_continue(self) -> bool:
         """After hitting the step limit, ask whether to keep going (interactive only)."""
         limit = self.session.config.max_steps
+        from .hooks import notify
+
+        notify(self.session, "max_steps", f"reached the step limit ({limit}); waiting for the user")
         try:
             ans = input(color(
                 f"reached step limit ({limit}). continue for another {limit} steps? [y/N] ",
