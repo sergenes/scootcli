@@ -171,6 +171,12 @@ def test_build_result_text_tool_use_and_provider_items():
               {"type": "tool_use", "id": "toolu_9", "name": "search", "input": {"q": "x"}}]
     r = build_result(blocks, "anthropic/claude-opus-5", {"input_tokens": 5, "output_tokens": 7}, "tool_use")
     assert r.content == "Let me check." and r.finish_reason == "tool_calls"
+    assert r.usage["prompt_tokens"] == 5 and r.usage["total_tokens"] == 12
+    # Cached input is not in input_tokens; prompt_tokens must be the whole prompt (seen live: 2 vs ~2700).
+    cached = build_result([], "m", {"input_tokens": 2, "cache_read_input_tokens": 2600,
+                                   "cache_creation_input_tokens": 100, "output_tokens": 9}, "end_turn")
+    assert cached.usage["prompt_tokens"] == 2702 and cached.usage["input_tokens"] == 2
+    assert cached.usage["completion_tokens"] == 9 and cached.usage["total_tokens"] == 2711
     assert r.tool_calls == [{"id": "toolu_9", "type": "function", "function": {"name": "search", "arguments": '{"q": "x"}'}}]
     assert r.raw_message["provider_items"] == {"model": "anthropic/claude-opus-5", "items": blocks}
     assert build_result([{"type": "text", "text": "x"}], "m", None, "max_tokens").finish_reason == "length"
@@ -258,7 +264,7 @@ def test_stream_text_tool_use_thinking_and_usage(monkeypatch, tmp_path):
     assert got == ["Let me ", "look."]
     assert r.content == "Let me look." and r.finish_reason == "tool_calls"
     assert r.tool_calls == [{"id": "toolu_1", "type": "function", "function": {"name": "list_dir", "arguments": '{"path": "."}'}}]
-    assert r.usage["prompt_tokens"] == 40 and r.usage["completion_tokens"] == 30 and r.usage["cache_read_input_tokens"] == 12
+    assert r.usage["prompt_tokens"] == 52 and r.usage["completion_tokens"] == 30 and r.usage["cache_read_input_tokens"] == 12
     items = r.raw_message["provider_items"]["items"]
     assert [b["type"] for b in items] == ["thinking", "text", "tool_use"]
     assert items[0]["signature"] == "sig123"  # replayable thinking block

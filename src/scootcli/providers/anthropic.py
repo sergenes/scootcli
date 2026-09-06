@@ -187,6 +187,21 @@ _STOP = {"end_turn": "stop", "tool_use": "tool_calls", "max_tokens": "length", "
          "pause_turn": "stop", "refusal": "refusal"}
 
 
+def total_input_usage(usage: Optional[dict]) -> dict:
+    """Anthropic's ``input_tokens`` excludes cached input; scoot's ``prompt_tokens`` is the whole prompt.
+
+    The context gauge and the session totals need the full size, so fold ``cache_read_input_tokens``
+    and ``cache_creation_input_tokens`` back in. The raw fields stay for cost analysis.
+    """
+    if not isinstance(usage, dict):
+        return {}
+    out = dict(usage)
+    total = (int(out.get("input_tokens") or 0) + int(out.get("cache_read_input_tokens") or 0)
+             + int(out.get("cache_creation_input_tokens") or 0))
+    out["prompt_tokens"] = total
+    return out
+
+
 def build_result(blocks: List[dict], model: str, usage: Optional[dict], stop_reason: str,
                  stop_details: Optional[dict] = None, streamed_text: str = "") -> ChatResult:
     if stop_reason == "refusal":
@@ -205,7 +220,7 @@ def build_result(blocks: List[dict], model: str, usage: Optional[dict], stop_rea
     if blocks:
         message["provider_items"] = {"model": model, "items": blocks}
     return ChatResult(content=content, model=model, tool_calls=tool_calls, finish_reason=finish,
-                      usage=normalize_usage(usage), raw_message=message)
+                      usage=normalize_usage(total_input_usage(usage)), raw_message=message)
 
 
 class _StreamState:

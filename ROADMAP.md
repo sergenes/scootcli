@@ -12,10 +12,11 @@ Still open from the launch checklist, to be done as 0.1.x fixes come in:
 - A pass on iTerm2 and one Linux terminal; an image prompt through the vision path; `--continue` and `/compact` on a real session.
 - A CI workflow that runs the test suite, then branch protection on `main`.
 
-## 0.2.0: Anthropic (code done 2026-09-06, live check pending a key)
+## 0.2.0: Anthropic (live-verified 2026-09-06, release pending)
 
-Shipped on `dev`: `providers/anthropic.py` (Messages API adapter), the `anthropic` registry row, tests for translation, per-model request rules, parsing, streaming, and error mapping.
-Remaining before the 0.2.0 release: a live run with a real `ANTHROPIC_API_KEY` (models list, a tool-calling turn on `claude-opus-5`, an image prompt), then version bump, changelog heading, build, upload, tag.
+Shipped on `dev`: `providers/anthropic.py` (Messages API adapter), the `anthropic` registry row, and tests for translation, per-model request rules, parsing, streaming, and error mapping.
+Verified live with a real key: model list, a streaming tool-calling turn on `claude-opus-5` with a thinking block replayed across the call, the non-streaming path, the Opus 4.8 and Haiku request rules, an image described through the Anthropic vision path, and `--continue`.
+Remaining: version bump to 0.2.0, changelog heading, build, upload, tag, release.
 
 ## 0.3.0: routing
 
