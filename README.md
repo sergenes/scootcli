@@ -251,14 +251,26 @@ The bottom row shows the mascot's face (its eyes follow the turn: `o o` idle, `>
 ```bash
 pipx install scootcli && pipx ensurepath       # recommended: isolated; ensurepath puts ~/.local/bin on PATH for new shells
 curl -fsSL https://raw.githubusercontent.com/sergenes/scootcli/main/install.sh | bash   # no pipx: puts the zipapp at ~/.local/bin/scoot
-pip install scootcli                           # anywhere
+pip install scootcli                           # inside a venv, container, or CI job (system Pythons on recent Linux and Homebrew block pip outside a venv)
 curl -LO https://github.com/sergenes/scootcli/releases/latest/download/scoot.pyz && python3 scoot.pyz  # single file, no install
 git clone https://github.com/sergenes/scootcli && cd scootcli && pip install -e .                       # from source
 ```
 
 The install script needs only `curl` and Python 3.9+. `SCOOT_VERSION=v0.2.0` pins a release and `SCOOT_INSTALL_DIR` changes the target; read it before you run it, it is sixty lines.
-**Upgrading.** `pipx upgrade scootcli`, or `pip install --upgrade scootcli`, or rerun the curl line, which always fetches the latest release; `scoot --version` shows what you have, and `scoot --check-update` asks PyPI whether a newer one exists. With `SCOOT_UPDATE_CHECK=1` the REPL checks once in the background at start and shows `⬆ x.y.z` in the status bar; nothing contacts PyPI otherwise.
-`bash install.sh --uninstall` removes the command installed by the script (pipx users: `pipx uninstall scootcli`); config and sessions stay.
+## Upgrade options
+
+Use the same tool you installed with:
+
+```bash
+pipx upgrade scootcli                          # pipx install
+pip install --upgrade scootcli                 # pip install
+curl -fsSL https://raw.githubusercontent.com/sergenes/scootcli/main/install.sh | bash   # the curl installer: rerun it, it always fetches the latest release
+scoot --version                                # what you have
+scoot --check-update                           # ask PyPI whether a newer release exists
+```
+
+With `SCOOT_UPDATE_CHECK=1` the REPL checks once in the background at start and shows `⬆ x.y.z` in the status bar; nothing contacts PyPI otherwise.
+To remove scoot: `pipx uninstall scootcli`, `pip uninstall scootcli`, or `bash install.sh --uninstall` for the curl installer; config in `~/.config/scoot` and sessions in `~/.local/state/scoot` stay either way.
 
 Both pipx and the script install into `~/.local/bin`. On a fresh Linux account that directory is added to PATH at login only if it already exists, so after the very first install either open a new login shell or run `pipx ensurepath`; the installer prints the exact line for your shell.
 
