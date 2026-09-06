@@ -7,6 +7,7 @@ agent loop can feed errors back to the model instead of crashing (PLAN §8).
 
 from __future__ import annotations
 
+import os
 import subprocess
 import threading
 from dataclasses import dataclass, field
@@ -20,6 +21,24 @@ MAX_READ_BYTES = 200 * 1024        # 200 KB per read_file
 MAX_OUTPUT_CHARS = 16_000          # truncate tool output fed back to the model
 MAX_OUTPUT_LINES = 400
 DEFAULT_SHELL_TIMEOUT = 60
+
+# Env overrides for non-interactive shell tools: stop child commands (git, pip, …) from
+# blocking on a pager or an interactive prompt that can never be answered here.
+_NONINTERACTIVE_ENV = {
+    "GIT_PAGER": "cat",
+    "PAGER": "cat",
+    "GIT_TERMINAL_PROMPT": "0",
+    "GH_PROMPT_DISABLED": "1",
+    "PYTHONUNBUFFERED": "1",
+    "DEBIAN_FRONTEND": "noninteractive",
+}
+
+
+def noninteractive_env(base: Optional[dict] = None) -> dict:
+    """Return a copy of ``base`` (default ``os.environ``) with pager/prompt blockers set."""
+    env = dict(os.environ if base is None else base)
+    env.update(_NONINTERACTIVE_ENV)
+    return env
 
 
 class ToolError(ScootError):
@@ -122,15 +141,23 @@ def run_subprocess(
     cwd: Path,
     cancel_event: Optional[threading.Event] = None,
     timeout: int = DEFAULT_SHELL_TIMEOUT,
+    env: Optional[dict] = None,
 ) -> "tuple[int, str, str]":
     """Run ``cmd`` returning ``(returncode, stdout, stderr)``.
 
     Honors ``cancel_event`` (ESC) by terminating the process, and enforces ``timeout``.
+    stdin is closed (``DEVNULL``) so a child can't wedge waiting for interactive input.
     """
     import time
 
     proc = subprocess.Popen(
-        cmd, cwd=str(cwd), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        cmd,
+        cwd=str(cwd),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=env,
     )
     deadline = time.time() + timeout
     while True:

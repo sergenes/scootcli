@@ -10,6 +10,7 @@ from .base import (
     ToolContext,
     ToolError,
     ToolResult,
+    noninteractive_env,
     run_subprocess,
     safe_path,
     truncate,
@@ -52,7 +53,8 @@ class RunShell(Tool):
 
         try:
             rc, out, err = run_subprocess(
-                ["/bin/sh", "-c", command], cwd, ctx.cancel_event, timeout=DEFAULT_SHELL_TIMEOUT
+                ["/bin/sh", "-c", command], cwd, ctx.cancel_event,
+                timeout=DEFAULT_SHELL_TIMEOUT, env=noninteractive_env(),
             )
         except ToolError as exc:
             return ToolResult.fail(str(exc))
