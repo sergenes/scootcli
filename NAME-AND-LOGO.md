@@ -76,7 +76,7 @@ Known neighbours (checked 2026-09-05): `scoot` on PyPI is a dead Twitter Scoot d
 Neither puts a `scoot` binary on PATH, so the command is safe, but a Homebrew formula would have to be `scootcli`.
 Because a `scoot` module exists on PyPI, the Python import package is `scootcli` too: distribution name, import name, and site-packages directory all agree, and the command stays `scoot`.
 
-Todo: grab `scootcli` on PyPI and the GitHub repo name early, short names disappear fast.
+Done 2026-09-05: `scootcli` is on PyPI and GitHub.
 PyPI does not need a public repo: the first upload claims the name, and the repository URL in the metadata is optional.
 
 ## Logo
