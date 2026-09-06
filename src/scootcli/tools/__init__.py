@@ -62,6 +62,7 @@ def load_builtins() -> None:
     from . import write_file  # noqa: F401
     from . import edit_file  # noqa: F401
     from . import run_shell  # noqa: F401
+    from . import open_editor  # noqa: F401
     from . import update_plan  # noqa: F401
 
     _loaded = True

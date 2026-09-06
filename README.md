@@ -148,7 +148,7 @@ Without a TTY, scoot falls back to a plain prompt with no bar and no dock.
 
 ### Tools and approvals
 
-The agent has seven tools: `read_file`, `list_dir`, `search`, `write_file`, `edit_file`, `run_shell`, and `update_plan` (a progress checklist for multi-step work).
+The agent has eight tools: `read_file`, `list_dir`, `search`, `write_file`, `edit_file`, `run_shell`, `open_editor` (hands a file to IntelliJ IDEA's `idea -e` or to VS Code, `SCOOT_EDITOR` picks), and `update_plan` (a progress checklist for multi-step work).
 Every tool is sandboxed to the workspace root.
 
 When a call needs approval you can approve once `[a]`, trust that tool for the session `[t]`, approve everything this session `[A]`, edit the arguments `[e]`, skip `[s]`, or quit `[q]`.
