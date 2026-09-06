@@ -250,6 +250,8 @@ git clone https://github.com/sergenes/scootcli && cd scootcli && pip install -e 
 ```
 
 The install script needs only `curl` and Python 3.9+. `SCOOT_VERSION=v0.2.0` pins a release and `SCOOT_INSTALL_DIR` changes the target; read it before you run it, it is sixty lines.
+**Upgrading.** `pipx upgrade scootcli`, or `pip install --upgrade scootcli`, or rerun the curl line, which always fetches the latest release; `scoot --version` shows what you have.
+
 Both pipx and the script install into `~/.local/bin`. On a fresh Linux account that directory is added to PATH at login only if it already exists, so after the very first install either open a new login shell or run `pipx ensurepath`; the installer prints the exact line for your shell.
 
 Requirements: Python 3.9 or newer on macOS or Linux.
