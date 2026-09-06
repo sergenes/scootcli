@@ -34,23 +34,9 @@ Detailed plan: `docs/plans/0.4.0-hooks-and-headless.md`.
 
 The workspace is the default, not a wall: a file tool that needs a path outside it asks once (this path, its directory, anywhere), with `--scope anywhere` / `/scope` to skip or manage; headless `scope_request`. Found on a real Linux run.
 
-## Website: scootcli.org
+## Website: scootcli.org (parked)
 
-Buy `scootcli.org` (the `.org` is the conventional home for open-source projects and the cheapest sensible option; `.net` reads as a service, `.io`, `.dev`, and `.sh` cost more for no gain).
-The domain is a front door, not a mirror: releases stay on GitHub Releases and PyPI.
-
-What it is for:
-- A short, stable install line that does not depend on a branch name or a file path: `curl -fsSL https://scootcli.org/install | bash`.
-- Trust: people who pipe curl into bash look at the host; a project domain over HTTPS is fine, a link shortener is not.
-- One page for people who are not on GitHub: the mascot, the tagline, the three install lines, a short paragraph on what scoot is, links to PyPI, GitHub, and the docs.
-
-How:
-- GitHub Pages from a `docs/site/` folder in this repo, custom domain via `CNAME`, HTTPS issued and renewed by GitHub; no server.
-- `docs/site/install` is a copy of `install.sh` served as a static file; a CI check fails when the two differ.
-- README, the installer's own header, and the release notes switch to the new line once the domain resolves.
-- Later, if wanted: the headless protocol doc and the spec rendered on the site from the same Markdown.
-
-Order: buy the domain, add the site folder and the CI check, point DNS at Pages, wait for the certificate, then flip the install line everywhere.
+The domain is bought and does nothing yet. The options weighed (a page, Firebase redirects, GoDaddy forwarding), the redirect config, and the GoDaddy steps are kept outside the repo in the maintainer's local `misc/` notes. Pick it up when there are users; until then the README keeps the raw GitHub install line.
 
 ## Later, as configuration rows
 

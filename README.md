@@ -251,7 +251,7 @@ The bottom row shows the mascot's face (its eyes follow the turn: `o o` idle, `>
 ```bash
 pipx install scootcli && pipx ensurepath       # recommended: isolated; ensurepath puts ~/.local/bin on PATH for new shells
 curl -fsSL https://raw.githubusercontent.com/sergenes/scootcli/main/install.sh | bash   # no pipx: puts the zipapp at ~/.local/bin/scoot
-pip install scootcli                           # anywhere
+pip install scootcli                           # inside a venv, container, or CI job (system Pythons on recent Linux and Homebrew block pip outside a venv)
 curl -LO https://github.com/sergenes/scootcli/releases/latest/download/scoot.pyz && python3 scoot.pyz  # single file, no install
 git clone https://github.com/sergenes/scootcli && cd scootcli && pip install -e .                       # from source
 ```
