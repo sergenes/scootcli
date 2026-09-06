@@ -168,6 +168,9 @@ class Agent:
 
         Returns ``(result, streamed)`` where ``streamed`` is True if content was already printed.
         """
+        taker = getattr(ui, "take_note", None)
+        if callable(taker):
+            taker(session)  # a Ctrl-N pressed during the previous activity
         messages = self._messages(session, cfg)
         hints = {"task_text": self._last_user_text(session), "needs_tools": True, "step": steps}
         if self._streaming and hasattr(ui, "stream") and hasattr(self.provider, "chat_stream"):

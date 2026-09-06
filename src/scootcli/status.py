@@ -35,7 +35,7 @@ class Status:
         self._stop = threading.Event()
         self._lock = threading.Lock()
 
-    def start(self, message: str = "thinking…", hint: str = "esc to stop") -> None:
+    def start(self, message: str = "thinking…", hint: str = "esc to stop · ^n note") -> None:
         self._message = message
         self._hint = hint
         self._started = time.time()

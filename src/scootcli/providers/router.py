@@ -220,6 +220,9 @@ def describe(router: Router) -> List[str]:
     if cfg.classifier:
         lines.append(f"classifier: {cfg.classifier['model']} → " + ", ".join(
             f"{k}={v}" for k, v in cfg.classifier["tiers"].items()))
+        if str(cfg.classifier["model"]).startswith("ollama/"):
+            lines.append("  note: small local models are rough judges here (about half right in our test); "
+                         "a hosted mini model such as openai/gpt-5-mini classifies better for a few hundred tokens")
     for i, rule in enumerate(cfg.rules, 1):
         lines.append(f"  {i}. when {json.dumps(rule.get('when') or {})} → {rule['use']}")
     if cfg.default:

@@ -110,7 +110,7 @@ Write your own rules in `~/.config/scoot/router.json` (or the file named by `SCO
   ],
   "default": "ollama/llama3.2",
   "classifier": {
-    "model": "ollama/llama3.2",
+    "model": "openai/gpt-5-mini",
     "tiers": {"simple": "ollama/llama3.2", "coding": "openai/gpt-5.3-codex", "hard": "anthropic/claude-opus-5"}
   }
 }
@@ -120,7 +120,7 @@ Conditions: `complex`, `has_images`, `needs_tools`, `est_tokens_over`, `prompt_m
 The optional `classifier` asks a small model one question per turn ("simple, coding, or hard?") and maps the answer to a tier; it adds a short call, and any failure falls through to the rules.
 Expect it to be rough with a 3B local model: on a hand-labelled set of seven prompts, `llama3.2` and `qwen2.5` each got four right, mostly confusing "coding" with "hard".
 The rules are deterministic, so put the decisions you care about there, and if you want a better judge, name a cheap hosted model as the classifier (`openai/gpt-5-mini`), which costs a few hundred tokens per turn.
-`/route` shows the rules in force and why the current model was picked; `/status` shows tokens per model.
+`/route` shows the rules in force and why the current model was picked; `/status` shows tokens, cached tokens, and cost per model, from the list prices in `pricing.py` (stamped with the date they were last checked; unknown models show `?`).
 `SCOOT_EFFORT` (`low` | `medium` | `high` | `xhigh`, default `medium`) sets the reasoning effort for models that take it, on both OpenAI and Anthropic.
 On Claude Opus 5 the server-side refusal fallback is requested by default, so a declined request is retried on another Claude model inside the same call; `SCOOT_ANTHROPIC_FALLBACKS=0` turns that off.
 
@@ -190,6 +190,7 @@ scoot --no-panel --no-dock           # plain prompt, no status bar (also what yo
 ```
 
 Press **ESC** while a turn is running to interrupt it; the conversation is kept.
+Press **Ctrl-N** while a turn is running to add a note: scoot asks for one line at the next model call and the model sees it before continuing ("use pytest, not unittest").
 Type `/` and press **Tab** to complete slash commands.
 
 **Terminals.** scoot works in macOS Terminal, iTerm2, and inside tmux; the status bar uses a scroll region, the input dock uses raw mode, and clipboard copy uses the system tool or an OSC-52 escape.
@@ -256,7 +257,8 @@ git clone https://github.com/sergenes/scootcli && cd scootcli && pip install -e 
 ```
 
 The install script needs only `curl` and Python 3.9+. `SCOOT_VERSION=v0.2.0` pins a release and `SCOOT_INSTALL_DIR` changes the target; read it before you run it, it is sixty lines.
-**Upgrading.** `pipx upgrade scootcli`, or `pip install --upgrade scootcli`, or rerun the curl line, which always fetches the latest release; `scoot --version` shows what you have.
+**Upgrading.** `pipx upgrade scootcli`, or `pip install --upgrade scootcli`, or rerun the curl line, which always fetches the latest release; `scoot --version` shows what you have, and `scoot --check-update` asks PyPI whether a newer one exists. With `SCOOT_UPDATE_CHECK=1` the REPL checks once in the background at start and shows `⬆ x.y.z` in the status bar; nothing contacts PyPI otherwise.
+`bash install.sh --uninstall` removes the command installed by the script (pipx users: `pipx uninstall scootcli`); config and sessions stay.
 
 Both pipx and the script install into `~/.local/bin`. On a fresh Linux account that directory is added to PATH at login only if it already exists, so after the very first install either open a new login shell or run `pipx ensurepath`; the installer prints the exact line for your shell.
 

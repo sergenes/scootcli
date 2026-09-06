@@ -79,6 +79,7 @@ class ReplSession:
         self.mascot_state = "idle"  # drives the mascot's eyes in the status bar: idle | thinking | stopped
         self.usage_by_model: dict = {}  # qualified model -> {"prompt": n, "completion": n, "calls": n}
         self.provider_ready = True  # False until a provider can take a request (see refresh_readiness)
+        self.update_available = ""  # newer release on PyPI, when the opt-in check found one
         from .tools.base import Scope
 
         self.scope = Scope(config.root, everything=(getattr(config, "scope", "workspace") == "anywhere"))
@@ -212,11 +213,26 @@ class ReplSession:
         completion = int((usage or {}).get("completion_tokens", 0) or 0)
         self.total_prompt += prompt
         self.total_completion += completion
+        from .pricing import cached_tokens
+
         key = model or getattr(self, "active_model", "") or "?"
-        slot = self.usage_by_model.setdefault(key, {"prompt": 0, "completion": 0, "calls": 0})
+        slot = self.usage_by_model.setdefault(key, {"prompt": 0, "completion": 0, "cached": 0, "calls": 0})
         slot["prompt"] += prompt
         slot["completion"] += completion
+        slot["cached"] += cached_tokens(usage)
         slot["calls"] += 1
+
+    def session_cost(self):
+        """USD spent this session across models, or ``None`` if any model's price is unknown."""
+        from .pricing import cost
+
+        total = 0.0
+        for name, u in self.usage_by_model.items():
+            c = cost(name, u["prompt"], u["completion"], u.get("cached", 0))
+            if c is None:
+                return None
+            total += c
+        return total
 
     def full_messages(self) -> List[dict]:
         return [{"role": "system", "content": CHAT_SYSTEM_PROMPT}, *self.messages]
@@ -294,6 +310,7 @@ class ReplUI:
     def __init__(self, labels: bool = True, verbosity: str = "full", emoji: bool = True):
         self.labels = labels
         self.emoji = emoji  # 🛴 label, or ⏺ when the terminal has no emoji font
+        self.note_requested = threading.Event()  # Ctrl-N during a turn; taken at the next model call
         self.verbosity = verbosity if verbosity in self.LEVELS else "full"
         self._tty = sys.stdout.isatty()
         self._transient = False  # a transient line is currently on screen (no trailing newline)
@@ -375,7 +392,7 @@ class ReplUI:
         status = Status()
         status.start(message)
         try:
-            with InterruptibleSection(cancel_event):
+            with InterruptibleSection(cancel_event, self.note_requested):
                 yield
         finally:
             status.stop()  # clears the spinner row; the tool row above stays on screen
@@ -393,7 +410,7 @@ class ReplUI:
         status.start("thinking…")
         printer = _StreamPrinter(status, labels=self.labels, on_label=self.label_once)
         try:
-            with InterruptibleSection(cancel_event):
+            with InterruptibleSection(cancel_event, self.note_requested):
                 yield printer
         finally:
             if not printer.started:
@@ -420,6 +437,30 @@ class ReplUI:
         from .approvals import request_scope
 
         return request_scope(tool, path, ctx)
+
+    def take_note(self, session) -> None:
+        """If Ctrl-N was pressed during the last activity, read one line now (cooked mode) and queue it
+        for the next model call. Called by the agent between activities."""
+        if not self.note_requested.is_set():
+            return
+        self.note_requested.clear()
+        self._commit_line()
+        try:
+            text = input(color("  note › ", "cyan")).strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return
+        if not text:
+            return
+        notes = getattr(session, "pending_notes", None)
+        if notes is None:
+            notes = []
+            try:
+                session.pending_notes = notes
+            except Exception:
+                return
+        notes.append(text)
+        print(color("  noted; the model sees it at its next call.", "gray"))
 
     def auto_approved(self, tool, args) -> None:
         import json as _json
@@ -551,6 +592,7 @@ class Repl:
         from .hooks import session_event
 
         session_event(self.session, "SessionStart", source="resume" if self.session.resumed else "startup")
+        self._start_update_check()
         code = 1
         try:
             code = self._loop()
@@ -614,6 +656,20 @@ class Repl:
                 eprint(color(traceback.format_exc(), "gray"))
             else:
                 print(color("  (run with --verbose or set SCOOT_VERBOSE=1 for a traceback)", "gray"))
+
+    def _start_update_check(self) -> None:
+        """Opt-in (SCOOT_UPDATE_CHECK=1): one PyPI request in the background; the bar shows ⬆ x.y.z."""
+        from .updates import enabled, is_newer, latest_version
+
+        if not enabled():
+            return
+
+        def _run() -> None:
+            latest = latest_version()
+            if is_newer(latest):
+                self.session.update_available = latest
+
+        threading.Thread(target=_run, daemon=True).start()
 
     def _auth_user(self):
         """Status-bar identity: the provider serving the active model, or a plain 'not set up'."""
