@@ -56,6 +56,9 @@ ollama pull llama3.2
 scoot --model ollama/llama3.2
 ```
 
+**First run.** With no key saved and no Ollama running, scoot still opens: the banner says "no provider set up yet", a short block lists the three ways to set one up, and the bar shows `not set up` until a provider can answer.
+Run `scoot auth set openai` (or `anthropic`) inside the REPL and the bar switches to the real provider and model at once.
+
 The first prompt:
 
 ```

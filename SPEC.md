@@ -40,7 +40,8 @@ An invalid rules file is reported by `/route` and the built-in heuristic applies
 3.3 `scoot auth set <provider>` reads a key with hidden input, validates it by listing the provider's models, and only then saves it with directory mode `0700` and file mode `0600`.
 3.4 `scoot auth clear <provider>` forgets the saved key and says so when a key from the environment still applies.
 3.5 Keys are never printed; key-shaped strings (`sk-…`, GitHub tokens, Bearer values, JWTs) are redacted from all output, including error messages and saved sessions.
-3.6 When the default provider requires a key and none is found, the REPL still opens and prints one hint line.
+3.6 When no provider can take a request (no key for a hosted provider, or the local server does not answer a TCP probe), the REPL still opens: the banner's first line says "no provider set up yet", a setup block listing `scoot auth set openai`, `scoot auth set anthropic`, and `ollama pull llama3.2` prints under the banner, the status bar shows `not set up` and `none · run /auth`, and one-shot mode prints the same block and exits 1.
+Readiness is checked for the provider of the active model, at start and again after `/auth set`, `/auth clear`, and `/model`; when a hosted key exists but the chosen local server is down, the message points at `/model` or `--provider` instead.
 
 ## 4. Configuration
 
@@ -89,7 +90,7 @@ The default is `yolo`.
 8.1 The banner shows the mascot with the version, active model, workspace root, a resume hint or the resumed session, and key hints; `--no-logo` shows a plain box.
 8.2 Input is a fixed bottom dock with full line editing, history recall, bracketed paste, growth up to six rows for long lines, and Tab completion of slash commands; without a TTY, a plain prompt is used.
 8.2a The spinner shows the elapsed time after three seconds and, after thirty, a reminder that Ctrl-C forces a stop.
-8.3 The bottom status bar shows the mascot face (eyes: `o o` idle, `> >` thinking, `- -` stopped), provider identity, folder and session id, model, approval mode, context size and its share of the compaction threshold, cumulative tokens, message count, worktree branch, plan progress, and the last error.
+8.3 The bottom status bar shows the mascot face (eyes: `o o` idle, `> >` thinking, `- -` stopped), the provider serving the active model (or `not set up`), folder and session id, model (or `none · run /auth`), approval mode, context size and its share of the compaction threshold, cumulative tokens, message count, worktree branch, plan progress, and the last error.
 8.4 Turns are labelled `❯` for the user and `🛴 scoot` for the assistant (`⏺ scoot` with `--no-emoji`); the assistant label prints once per turn.
 8.5 `/verbosity full|compact|quiet` controls whether reasoning narration and tool lines stay in the feed.
 8.6 `/c` or Ctrl-S copies the last answer to the clipboard through `pbcopy`, `wl-copy`, `xclip`, `xsel`, or an OSC-52 escape.
