@@ -33,6 +33,8 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     # Global flags (CLI-flag layer of config precedence).
     parser.add_argument("--version", action="version", version=f"scoot {__version__}")
+    parser.add_argument("--check-update", action="store_true",
+                        help="Ask PyPI whether a newer scoot exists, print both versions, and exit.")
     parser.add_argument("--model", help="Model as provider/model (e.g. openai/gpt-5.3-codex), 'default', or 'auto'.")
     parser.add_argument("--provider", help="Default provider (openai, ollama, ...) for bare model names.")
     parser.add_argument("--effort", choices=["low", "medium", "high", "xhigh"],
@@ -199,10 +201,13 @@ def _run_once(config: Config, pool: ProviderPool, prompt: str, as_json: bool, re
         if outcome.content.strip() and not outcome.streamed:
             print(outcome.content.strip())
         if config.verbose:
+            from .pricing import fmt
+
             u = session.last_usage
             eprint(color(f"[{session.active_model}] steps={outcome.steps} "
                          f"prompt={u.get('prompt_tokens', '?')} "
-                         f"completion={u.get('completion_tokens', '?')}", "gray"))
+                         f"completion={u.get('completion_tokens', '?')} "
+                         f"cost={fmt(session.session_cost())}", "gray"))
         return 0
     eprint(color(f"⚠ {redact(outcome.error or outcome.status)}", "red"))
     return 1
@@ -270,6 +275,18 @@ def _resolve_prompt(args: argparse.Namespace) -> Optional[str]:
 
 def main(argv: Optional[List[str]] = None) -> int:
     args = _build_parser().parse_args(argv)
+    if args.check_update:
+        from .updates import check, is_newer, upgrade_hint
+
+        current, latest = check()
+        if latest is None:
+            print(f"scoot {current} (could not reach PyPI to check for updates)")
+            return 1
+        if is_newer(latest, current):
+            print(f"scoot {current}; newer release available: {latest}\n  {upgrade_hint()}")
+        else:
+            print(f"scoot {current} is the latest release.")
+        return 0
     try:
         config = _config_from_args(args)
         pool = ProviderPool(config)

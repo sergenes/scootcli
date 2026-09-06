@@ -24,6 +24,7 @@ except ImportError:  # pragma: no cover - non-POSIX
     _HAVE_TERMIOS = False
 
 ESC = "\x1b"
+NOTE_KEY = b"\x0e"  # Ctrl-N: ask for a note at the next model call
 
 
 def read_key() -> str:
@@ -54,8 +55,9 @@ class InterruptibleSection:
     is simply unavailable — the work still runs normally.
     """
 
-    def __init__(self, cancel_event: threading.Event):
+    def __init__(self, cancel_event: threading.Event, note_event: "threading.Event | None" = None):
         self.cancel_event = cancel_event
+        self.note_event = note_event
         self.enabled = _HAVE_TERMIOS and sys.stdin.isatty()
         self._fd = sys.stdin.fileno() if self.enabled else -1
         self._old_attrs = None
@@ -88,6 +90,9 @@ class InterruptibleSection:
                 ch = os.read(self._fd, 1)
             except (OSError, ValueError):
                 break
+            if ch == NOTE_KEY and self.note_event is not None:
+                self.note_event.set()
+                continue
             if ch == b"\x1b":
                 # Distinguish a bare ESC (a real interrupt) from an escape sequence — arrow keys,
                 # mouse reports, or bracketed-paste markers (\x1b[201~) left in the buffer after a

@@ -9,7 +9,8 @@ Each numbered statement is testable, and most have a network-free test.
 1.1 The command is `scoot`; the PyPI distribution and the Python package are `scootcli`.
 1.2 The implementation uses only the Python standard library and runs on Python 3.9 or newer on macOS and Linux.
 1.3 The tool ships as a wheel, an sdist, and a single-file zipapp (`scoot.pyz`) that runs without installation.
-1.3a `install.sh` at the repository root installs the zipapp from the latest GitHub release (or `SCOOT_VERSION`) as `SCOOT_INSTALL_DIR/scoot` (default `~/.local/bin`), after checking for Python 3.9+ and verifying the download runs; it prints a PATH hint when needed.
+1.3a `install.sh` at the repository root installs the zipapp from the latest GitHub release (or `SCOOT_VERSION`) as `SCOOT_INSTALL_DIR/scoot` (default `~/.local/bin`), after checking for Python 3.9+ and verifying the download runs; it prints the PATH line for the user's shell when needed; `install.sh --uninstall` removes the command and leaves config and sessions.
+1.3b `scoot --check-update` asks PyPI once (2 s timeout) and prints the current and latest versions with the upgrade command, exit 1 when PyPI cannot be reached; with `SCOOT_UPDATE_CHECK=1` the REPL does the same check in the background at start and shows `⬆ x.y.z` in the status bar and in `/status`. Nothing contacts PyPI otherwise.
 1.4 Nothing scoot does requires network access except calls to the configured model providers.
 
 ## 2. Providers and models
@@ -22,7 +23,8 @@ A bare model name is resolved against the default provider.
 2.5 The `auto` preference routes once per turn, at the first model call, and the turn stays on that model.
 Order: a configured classifier (a small model asked "simple, coding, or hard?", mapped to a tier), then the rules in `~/.config/scoot/router.json` or `SCOOT_ROUTER` (first match wins; conditions `complex`, `has_images`, `needs_tools`, `est_tokens_over`, `prompt_matches`; a rule naming a provider without a key is skipped; an unknown condition never matches), then the file's `default`, then the built-in heuristic over the live model list: a strong coding model for multi-step or editing prompts, a cheaper one for short questions, never a dated snapshot id when a plain id exists, falling back to the `default` resolution when the list is empty.
 An invalid rules file is reported by `/route` and the built-in heuristic applies.
-2.5a `/route` shows the rule source, the rules, the classifier, and the last decision with its reason; `/status` shows tokens per model when more than one model was used or `auto` is on.
+2.5a `/route` shows the rule source, the rules, the classifier, and the last decision with its reason, and warns when the classifier is a local model; `/status` shows tokens, cached tokens, calls, and cost per model plus the session total.
+2.5b Cost uses the list prices in `pricing.py` (per million tokens, with cached input at its own rate), stamped with the date they were last checked; a model without a known price shows `?` and makes the session total `?`; local models cost zero.
 2.6 `scoot models` lists models from every configured provider with qualified ids, grouped by provider, marking the default; providers that fail to answer are reported, not fatal.
 `--provider NAME` restricts the list; `--json` returns `{"models": [...], "errors": {...}}`.
 2.7 Each provider's base URL can be overridden with `SCOOT_<PROVIDER>_BASE_URL`.
@@ -65,6 +67,7 @@ Each call receives the system prompt, the conversation, and the schemas of all r
 5.7 A compact workspace map (git branch and dirty count, bounded file tree) is injected into the system prompt each turn unless `--no-workspace`.
 5.8 An `AGENTS.md` at the workspace root is injected into the system prompt when present; `/init` generates one.
 5.9 Pressing ESC during a turn cancels the in-flight request or tool at once, prints an interruption notice, and keeps the conversation.
+5.10 Pressing Ctrl-N during a turn asks for a one-line note at the next model call (the spinner's hint says `^n note`); the note is delivered to the model as a user message before that call, the same path headless mode's `note` uses.
 
 ## 6. Tools
 

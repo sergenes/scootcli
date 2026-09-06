@@ -6,6 +6,7 @@
 # Options (environment variables):
 #   SCOOT_VERSION=v0.2.0       install a specific release instead of the latest
 #   SCOOT_INSTALL_DIR=~/bin    where to put the `scoot` command (default: ~/.local/bin)
+#   bash install.sh --uninstall   remove the command (config and sessions stay)
 #
 # Needs: curl and Python 3.9 or newer. Nothing else: scoot has no dependencies.
 # Prefer `pipx install scootcli` if you already use pipx; this script is for machines without it.
@@ -17,6 +18,18 @@ VERSION="${SCOOT_VERSION:-latest}"
 
 say()  { printf '%s\n' "$*"; }
 fail() { printf 'scoot install: %s\n' "$*" >&2; exit 1; }
+
+# ── uninstall ──────────────────────────────────────────────────────────────────
+if [ "${1:-}" = "--uninstall" ]; then
+    if [ -f "$INSTALL_DIR/scoot" ]; then
+        rm -f "$INSTALL_DIR/scoot" && say "✔ removed $INSTALL_DIR/scoot"
+    else
+        say "nothing to remove at $INSTALL_DIR/scoot"
+    fi
+    say "  config and sessions were left in place: ~/.config/scoot and ~/.local/state/scoot"
+    say "  (installed with pipx instead? use: pipx uninstall scootcli)"
+    exit 0
+fi
 
 # ── Python 3.9+ ────────────────────────────────────────────────────────────────
 PY=""

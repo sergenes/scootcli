@@ -108,6 +108,9 @@ def build_status_text(session, user: Optional[str] = None) -> str:
     err = getattr(session, "last_error", None)
     if err:
         segments.append(f"⚠ {err}")
+    newer = getattr(session, "update_available", "")
+    if newer:
+        segments.append(f"⬆ {newer}")
     # The mascot's face leads the bar; its eyes follow the turn (idle / thinking / stopped).
     if getattr(getattr(session, "config", None), "logo", True):
         from .logo import face

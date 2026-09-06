@@ -45,12 +45,7 @@ Verification still owed:
 - A manual look in iTerm2 (bar, dock, paste, ESC, `/c` copy) and `/compact` on a real long session.
 - More Linux runs as the first users report; the first two runs each found a real problem.
 
-Small, likely soon:
-- Cost per model in `/status` (per-model tokens exist since 0.3.0; cost needs a price table per provider that must stay current).
-- An opt-in "a newer scoot exists" notice in `scoot --version` (means one request to PyPI; off by default).
-- A mid-turn note in the REPL (headless mode has `note`; the REPL has no way to talk to a running turn except ESC).
-- The router classifier is rough with 3B local models (four of seven on a hand-labelled set); a better default prompt or a hosted-model recommendation in the docs.
-- A test-friendly `install.sh --uninstall`.
+Small, done for 0.6.0 (2026-09-06): cost per model in `/status`, the opt-in update check, the Ctrl-N mid-turn note, classifier guidance, `install.sh --uninstall`.
 
 Larger:
 - Windows: the input dock and ESC handling use termios and raw mode, so scoot runs on Windows only under WSL today; a native path needs the `msvcrt` equivalents and a status bar that survives the console.
