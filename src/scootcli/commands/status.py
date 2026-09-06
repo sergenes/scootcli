@@ -42,6 +42,13 @@ def _run(session, args: str):
     print(color("status:", "bold"))
     for label, value in rows:
         print(f"  {color(label + ':', 'gray'):<28} {value}")
+    by_model = getattr(session, "usage_by_model", None) or {}
+    if len(by_model) > 1 or (by_model and session.model.lower() == "auto"):
+        print(f"  {color('tokens by model:', 'gray')}")
+        for name, u in sorted(by_model.items(), key=lambda kv: -(kv[1]['prompt'] + kv[1]['completion'])):
+            print(f"    {color(name, 'cyan'):<40} prompt={u['prompt']} completion={u['completion']} calls={u['calls']}")
+    if session.model.lower() == "auto" and getattr(session, "route_reason", ""):
+        print(f"  {color('routed by:', 'gray'):<28} {session.route_reason}")
     trusted = getattr(session, "trusted_tools", None)
     if trusted:
         print(f"  {color('trusted tools:', 'gray'):<28} {', '.join(sorted(trusted))}")

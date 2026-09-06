@@ -129,7 +129,10 @@ class Agent:
             except ScootError as exc:
                 return AgentOutcome("error", error=_fmt_error(exc), steps=steps)
 
-            session.account(result.usage)
+            try:
+                session.account(result.usage, model=result.model or session.active_model)
+            except TypeError:  # older/fake sessions with a one-argument account()
+                session.account(result.usage)
             session.messages.append(self._assistant_message(result))
 
             if result.tool_calls:
@@ -187,19 +190,33 @@ class Agent:
 
     # ── message construction ─────────────────────────────────────────────────────
     def _pick_model(self, session) -> str:
-        """Resolve the model for this turn. For ``auto``, use the heuristic over live models."""
+        """Resolve the model for this turn. ``auto`` routes once per turn (see ``providers.router``)."""
         if session.model.lower() != "auto":
             return session.resolved_model()
-        from .models import resolve_auto
+        from .providers.router import Router, compute_hints
 
-        last_user = self._last_user_text(session)
+        router = getattr(session, "router", None)
+        if router is None:
+            router = Router()
+            try:
+                session.router = router
+            except Exception:
+                pass
         try:
             available = session.available_models()
         except Exception:
             available = []
         bad = getattr(session, "bad_models", None) or set()
         available = [m for m in available if m not in bad] or available
-        return resolve_auto(last_user, available, fallback=session.resolved_model())
+        hints = compute_hints(session)
+        return router.choose(session, hints, available, session.resolved_model(),
+                             classify=self._classify_with_provider).model
+
+    def _classify_with_provider(self, model: str, prompt: str) -> str:
+        """One small, non-streaming call used by a configured router classifier."""
+        result = self.provider.chat([{"role": "user", "content": prompt}], model=model, max_tokens=8,
+                                    hints={"purpose": "route"})
+        return result.content or ""
 
     def _fallback_model(self, session) -> bool:
         """After a model-unavailable error, blacklist it and switch models. Returns False if stuck."""

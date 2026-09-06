@@ -51,6 +51,7 @@ def load_builtins() -> None:
     from . import verbosity as _verbosity  # noqa: F401
     from . import copy as _copy  # noqa: F401
     from . import logo as _logo  # noqa: F401
+    from . import route as _route  # noqa: F401
 
     _loaded = True
 

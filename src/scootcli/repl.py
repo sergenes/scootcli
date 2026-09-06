@@ -77,6 +77,8 @@ class ReplSession:
         self.last_error = ""  # short label of the most recent turn failure (shown in the bar until next turn)
         self.last_output = ""  # plain-text of the last assistant answer (for /c + Ctrl-S copy)
         self.mascot_state = "idle"  # drives the mascot's eyes in the status bar: idle | thinking | stopped
+        self.usage_by_model: dict = {}  # qualified model -> {"prompt": n, "completion": n, "calls": n}
+        self.route_reason = ""  # why the router picked the active model (auto only)
         # Persistence (auto-save each turn; resume via --continue/--resume).
         from . import sessions
 
@@ -188,10 +190,17 @@ class ReplSession:
         self.created = time.time()
         self.resumed = False
 
-    def account(self, usage: dict) -> None:
+    def account(self, usage: dict, model: str = "") -> None:
         self.last_usage = usage or {}
-        self.total_prompt += int(usage.get("prompt_tokens", 0) or 0)
-        self.total_completion += int(usage.get("completion_tokens", 0) or 0)
+        prompt = int((usage or {}).get("prompt_tokens", 0) or 0)
+        completion = int((usage or {}).get("completion_tokens", 0) or 0)
+        self.total_prompt += prompt
+        self.total_completion += completion
+        key = model or getattr(self, "active_model", "") or "?"
+        slot = self.usage_by_model.setdefault(key, {"prompt": 0, "completion": 0, "calls": 0})
+        slot["prompt"] += prompt
+        slot["completion"] += completion
+        slot["calls"] += 1
 
     def full_messages(self) -> List[dict]:
         return [{"role": "system", "content": CHAT_SYSTEM_PROMPT}, *self.messages]
