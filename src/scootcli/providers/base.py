@@ -336,9 +336,13 @@ class BaseProvider:
                 return fn()
             except NetworkError as exc:
                 if is_local_url(self.spec.base_url):
-                    exc.hint = (f"{self.name} is not running at {self.spec.base_url}: start it "
-                                f"(`ollama serve`; install from https://ollama.com) or use another "
-                                f"provider (`scoot auth set openai`)")
+                    from .registry import any_hosted_configured
+
+                    start = f"{self.name} is not running at {self.spec.base_url}: start it (`ollama serve`; install from https://ollama.com)"
+                    other = ("or pick a configured hosted provider with /model or --provider"
+                             if any_hosted_configured() else
+                             "or set up a hosted provider: `scoot auth set openai` · `scoot auth set anthropic`")
+                    exc.hint = f"{start}, {other}"
                     raise
                 if attempt >= _RETRY_ATTEMPTS or (emitted is not None and emitted[0]):
                     raise

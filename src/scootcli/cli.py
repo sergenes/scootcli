@@ -228,14 +228,8 @@ def _interactive(pool: ProviderPool, resume=None) -> int:
 
         resume = sessions.latest_for_root(str(config.root))
 
-    try:
-        from .providers.registry import readiness
-
-        ready, message = readiness(config)
-        if not ready:  # first-run onboarding: guide, but still open the REPL so /auth is usable
-            eprint(color(message, "yellow"))
-    except ScootError as exc:
-        eprint(color(f"⚠ {redact(str(exc))}", "yellow"))
+    # First-run onboarding happens inside the REPL (banner + a setup block), because anything printed
+    # here would be wiped by the screen clear the REPL does on start.
     return Repl(config, pool, resume=resume).run()
 
 
