@@ -151,8 +151,12 @@ class ReplSession:
             return True
 
     def autosave(self) -> None:
-        """Persist the session after a turn (best-effort; never raises)."""
-        if not self.messages:
+        """Persist the session after a turn (best-effort; never raises).
+
+        A conversation with no assistant reply yet (the first turn failed before the model answered)
+        is not worth resuming, so it is not written.
+        """
+        if not any(m.get("role") == "assistant" for m in self.messages):
             return
         try:
             from . import sessions

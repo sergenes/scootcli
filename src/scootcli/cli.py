@@ -141,6 +141,16 @@ def _run_once(config: Config, pool: ProviderPool, prompt: str, as_json: bool, re
     from .agent import Agent
     from .repl import ReplSession, ReplUI
 
+    from .providers.registry import readiness
+
+    ready, message = readiness(config)
+    if not ready:  # fail fast with guidance instead of a connection error after retries
+        if as_json:
+            print(_json.dumps({"status": "error", "model": "", "steps": 0, "content": "",
+                               "error": message, "usage": {}}, indent=2))
+        else:
+            eprint(color(message, "yellow"))
+        return 1
     session = ReplSession(config, pool)
     if resume is not None:
         session.apply_record(resume)
@@ -194,7 +204,6 @@ def _cmd_auth(config: Config, pool: ProviderPool, words: List[str]) -> int:
 
 def _interactive(pool: ProviderPool, resume=None) -> int:
     """Launch the persistent REPL (banner, live status, ESC-interrupt, slash-commands)."""
-    from .auth import is_configured, missing_key_hint
     from .repl import Repl
 
     config = pool.config
@@ -206,9 +215,11 @@ def _interactive(pool: ProviderPool, resume=None) -> int:
         resume = sessions.latest_for_root(str(config.root))
 
     try:
-        spec = pool.spec
-        if not is_configured(spec):  # first-run onboarding: guide, but still open the REPL
-            eprint(color(f"No API key for {spec.name}: {missing_key_hint(spec)}", "yellow"))
+        from .providers.registry import readiness
+
+        ready, message = readiness(config)
+        if not ready:  # first-run onboarding: guide, but still open the REPL so /auth is usable
+            eprint(color(message, "yellow"))
     except ScootError as exc:
         eprint(color(f"⚠ {redact(str(exc))}", "yellow"))
     return Repl(config, pool, resume=resume).run()

@@ -24,8 +24,10 @@ def _show(session) -> None:
     print(color("providers:", "bold"))
     for row in rows:
         name = row["name"] + ("  (default)" if row["default"] else "")
-        if not row["required"]:
-            state = color("no key needed", "gray")
+        if not row["required"] and row.get("reachable") is False:
+            state = color("not running (ollama serve; install from https://ollama.com)", "yellow")
+        elif not row["required"]:
+            state = color("no key needed" + (", running" if row.get("reachable") else ""), "gray")
         elif row["source"]:
             state = color(f"key from {row['source']}", "green")
         else:
