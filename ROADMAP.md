@@ -16,12 +16,22 @@ Still open from the launch checklist, to be done as 0.1.x fixes come in:
 
 The Anthropic Messages API adapter on the provider layer, live-verified on `claude-opus-5` (tool calling with thinking replay, streaming and non-streaming, images, resume) plus the `open_editor` tool, the non-interactive `run_shell`, and the spinner timer.
 
-## 0.3.0: routing
+## 0.3.0: routing and a curl install
 
-- `RouterProvider`: implements the `Provider` protocol and delegates each request to a real provider using `ChatRequest.hints` (task text, images, tools needed, estimated tokens) and rules from `SCOOT_ROUTER`.
+- **Install script.** `install.sh` at the repo root, served raw from GitHub: checks for Python 3.9+, downloads the latest `scoot.pyz` from the GitHub release, installs it as `~/.local/bin/scoot`, prints a PATH hint. The README lists it as the second install option after `pipx`:
+  `curl -fsSL https://raw.githubusercontent.com/sergenes/scootcli/main/install.sh | bash`
+- **`RouterProvider`**: implements the `Provider` protocol and delegates each request to a real provider using `ChatRequest.hints` (task text, images, tools needed, estimated tokens) and rules from `SCOOT_ROUTER`.
 - Optional classifier: ask a small local model (Ollama) which tier a request needs before sending it to a hosted one.
 - Per-provider spend accounting in `/status` from the normalized usage.
 - The `auto` heuristic in `models.py` becomes the router's first rule set.
+
+## 0.4.0: hooks and headless mode
+
+The standard machine interfaces of a coding agent, so editors, automation, and remote-control tools can drive scoot without scraping its terminal.
+Detailed plan: `docs/plans/0.4.0-hooks-and-headless.md`.
+
+- **Hooks**: shell commands on lifecycle events (`SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `Notification`, `SessionEnd`) with JSON payloads on stdin and decisions on stdout, configured in `~/.config/scoot/hooks.json` and `.scoot/hooks.json`. Payload shapes follow the de-facto standard set by Claude Code so existing hook scripts work with little change. `/hooks` lists them; `SCOOT_HOOKS=0` disables.
+- **Headless mode**: `scoot --headless`, line-delimited JSON over stdin and stdout: prompts, notes, and approval answers in; streamed text, tool calls, approval requests, results, plan updates, usage, and errors out. Same sessions, tools, approvals, and hooks as the REPL. Versioned protocol.
 
 ## Later, as configuration rows
 
