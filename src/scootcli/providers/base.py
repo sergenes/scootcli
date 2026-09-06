@@ -154,11 +154,12 @@ def raise_for_status(status: int, body: str, provider: str = "") -> None:
                           hint=f"{who} issue; backing off and retrying")
     if status >= 400 or msg:
         low = (code + " " + msg).lower()
-        if "context" in low and any(w in low for w in ("length", "exceed", "maximum", "token")):
+        if ("prompt is too long" in low or "too many tokens" in low
+                or ("context" in low and any(w in low for w in ("length", "exceed", "maximum", "token")))):
             raise ContextLengthError(msg or "context length exceeded", status=status, code=code,
                                      hint="run /compact to shrink context, then retry")
         if "model" in low and any(w in low for w in
-                                  ("not supported", "not accessible", "not found", "unsupported",
+                                  ("not supported", "not accessible", "not found", "not_found", "unsupported",
                                    "does not exist", "not exist")):
             raise ModelUnavailableError(msg or "model unavailable", status=status, code=code,
                                         hint="switching to a supported model")
@@ -295,19 +296,27 @@ class BaseProvider:
     def _extra_headers(self) -> List[str]:
         return [f"{k}: {v}" for k, v in self.spec.extra_headers]
 
+    # Two hooks let an adapter change how the key travels: by default it is a Bearer token in
+    # ``Authorization``; Anthropic overrides both to send ``x-api-key`` plus its version header.
+    def _auth_token(self) -> str:
+        return self._auth()
+
+    def _headers_for(self, payload: Optional[dict]) -> List[str]:
+        return self._extra_headers()
+
     def _http(self, method: str, path: str, payload: Optional[dict], cancel_event) -> Tuple[int, str]:
         """One request, status-checked. Callers wrap it in :meth:`_with_retry` when appropriate."""
         status, body = self.transport.request(
-            method, self._url(path), self._auth(), extra_headers=self._extra_headers(), body=payload,
-            cancel_event=cancel_event,
+            method, self._url(path), self._auth_token(), extra_headers=self._headers_for(payload),
+            body=payload, cancel_event=cancel_event,
         )
         raise_for_status(status, body, self.name)
         return status, body
 
     def _http_stream(self, path: str, payload: dict, cancel_event) -> Iterator[str]:
         return self.transport.stream_request(
-            "POST", self._url(path), self._auth(), extra_headers=self._extra_headers(), body=payload,
-            cancel_event=cancel_event,
+            "POST", self._url(path), self._auth_token(), extra_headers=self._headers_for(payload),
+            body=payload, cancel_event=cancel_event,
         )
 
     # ── retry policy ─────────────────────────────────────────────────────────────
