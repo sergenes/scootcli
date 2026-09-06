@@ -9,6 +9,7 @@ Each numbered statement is testable, and most have a network-free test.
 1.1 The command is `scoot`; the PyPI distribution and the Python package are `scootcli`.
 1.2 The implementation uses only the Python standard library and runs on Python 3.9 or newer on macOS and Linux.
 1.3 The tool ships as a wheel, an sdist, and a single-file zipapp (`scoot.pyz`) that runs without installation.
+1.3a `install.sh` at the repository root installs the zipapp from the latest GitHub release (or `SCOOT_VERSION`) as `SCOOT_INSTALL_DIR/scoot` (default `~/.local/bin`), after checking for Python 3.9+ and verifying the download runs; it prints a PATH hint when needed.
 1.4 Nothing scoot does requires network access except calls to the configured model providers.
 
 ## 2. Providers and models

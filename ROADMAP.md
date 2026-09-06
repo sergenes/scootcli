@@ -18,7 +18,7 @@ The Anthropic Messages API adapter on the provider layer, live-verified on `clau
 
 ## 0.3.0: routing and a curl install
 
-- **Install script.** `install.sh` at the repo root, served raw from GitHub: checks for Python 3.9+, downloads the latest `scoot.pyz` from the GitHub release, installs it as `~/.local/bin/scoot`, prints a PATH hint. The README lists it as the second install option after `pipx`:
+- ✅ **Install script** (2026-09-06). `install.sh` at the repo root, served raw from GitHub: checks for Python 3.9+, downloads the latest `scoot.pyz` from the GitHub release, installs it as `~/.local/bin/scoot`, prints a PATH hint. The README lists it as the second install option after `pipx`:
   `curl -fsSL https://raw.githubusercontent.com/sergenes/scootcli/main/install.sh | bash`
 - **`RouterProvider`**: implements the `Provider` protocol and delegates each request to a real provider using `ChatRequest.hints` (task text, images, tools needed, estimated tokens) and rules from `SCOOT_ROUTER`.
 - Optional classifier: ask a small local model (Ollama) which tier a request needs before sending it to a hosted one.
