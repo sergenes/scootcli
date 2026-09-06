@@ -4,6 +4,9 @@ All notable changes to `scoot`. Format loosely follows [Keep a Changelog](https:
 Versions before 0.1.0 were internal builds of the tool's predecessor, renumbered `0.0.N` here and trimmed to what still describes the public tool.
 What comes next lives in [`ROADMAP.md`](./ROADMAP.md); the behaviour spec in [`SPEC.md`](./SPEC.md); design notes in [`DESIGN.md`](./DESIGN.md).
 
+## [Unreleased]
+- **Install script:** `curl -fsSL https://raw.githubusercontent.com/sergenes/scootcli/main/install.sh | bash` installs the latest release's zipapp as `~/.local/bin/scoot`; `SCOOT_VERSION` pins, `SCOOT_INSTALL_DIR` relocates. CI runs it against the live release on Linux and macOS.
+
 ## [0.2.0] — Anthropic, open_editor, a shell that never waits (2026-09-06)
 - **Anthropic provider:** `anthropic/claude-opus-5` and the rest of the Claude family through the Messages API, on the same provider layer: thinking blocks replay to the producing model, `SCOOT_EFFORT` maps to `output_config.effort`, tool results of a step travel in one message, refusals surface as errors, prompt caching is on, and Claude Opus 5 requests the server-side refusal fallback (`SCOOT_ANTHROPIC_FALLBACKS=0` to disable).
 - **README badges.**

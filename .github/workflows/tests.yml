@@ -69,3 +69,19 @@ jobs:
         with:
           name: dist
           path: dist/
+
+  install-script:
+    name: install.sh against the latest release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the installer into a temp dir and check the result
+        run: |
+          set -euo pipefail
+          DIR="$(mktemp -d)"
+          SCOOT_INSTALL_DIR="$DIR" bash install.sh
+          "$DIR/scoot" --version
+          "$DIR/scoot" --help | head -3
