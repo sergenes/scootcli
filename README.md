@@ -108,6 +108,8 @@ Write your own rules in `~/.config/scoot/router.json` (or the file named by `SCO
 
 Conditions: `complex`, `has_images`, `needs_tools`, `est_tokens_over`, `prompt_matches`.
 The optional `classifier` asks a small model one question per turn ("simple, coding, or hard?") and maps the answer to a tier; it adds a short call, and any failure falls through to the rules.
+Expect it to be rough with a 3B local model: on a hand-labelled set of seven prompts, `llama3.2` and `qwen2.5` each got four right, mostly confusing "coding" with "hard".
+The rules are deterministic, so put the decisions you care about there, and if you want a better judge, name a cheap hosted model as the classifier (`openai/gpt-5-mini`), which costs a few hundred tokens per turn.
 `/route` shows the rules in force and why the current model was picked; `/status` shows tokens per model.
 `SCOOT_EFFORT` (`low` | `medium` | `high` | `xhigh`, default `medium`) sets the reasoning effort for models that take it, on both OpenAI and Anthropic.
 On Claude Opus 5 the server-side refusal fallback is requested by default, so a declined request is retried on another Claude model inside the same call; `SCOOT_ANTHROPIC_FALLBACKS=0` turns that off.

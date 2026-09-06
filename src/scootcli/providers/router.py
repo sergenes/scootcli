@@ -42,10 +42,19 @@ from .base import split_model_id
 
 _TIERS = ("simple", "coding", "hard")
 _CLASSIFY_PROMPT = (
-    "Classify the following request for a coding agent as exactly one word: simple (a short question "
-    "or trivial edit), coding (implementing, fixing, refactoring, multi-step work), or hard (deep "
-    "reasoning, architecture, debugging across many files). Reply with the single word only.\n\n"
-    "Request:\n"
+    "You route requests sent to a coding agent to one of three tiers. Answer with exactly one word.\n"
+    "simple: a question, a short reply, a one-line lookup, a chat message; nothing in the repository changes.\n"
+    "coding: the agent must create, edit, or delete files, add features or tests, fix a known bug, or run commands.\n"
+    "hard: debugging or design that spans many files or components, performance or concurrency problems, "
+    "architecture, migrations.\n\n"
+    "Examples:\n"
+    "Request: what does this function return? -> simple\n"
+    "Request: reply with the word pong -> simple\n"
+    "Request: add a --verbose flag to cli.py and a test for it -> coding\n"
+    "Request: rename the User class to Account everywhere -> coding\n"
+    "Request: the scheduler and the worker pool deadlock under load; find out why and propose a redesign -> hard\n"
+    "Request: migrate the storage layer from SQLite to Postgres without downtime -> hard\n\n"
+    "Request: "
 )
 
 
@@ -193,7 +202,7 @@ class Router:
         if not self._provider_ok(model):
             return None
         try:
-            answer = (classify(model, _CLASSIFY_PROMPT + text[:4000]) or "").strip().lower()
+            answer = (classify(model, _CLASSIFY_PROMPT + text[:4000] + "\nTier:") or "").strip().lower()
         except ScootError:
             return None
         except Exception:

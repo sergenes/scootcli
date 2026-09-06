@@ -214,8 +214,8 @@ class Agent:
 
     def _classify_with_provider(self, model: str, prompt: str) -> str:
         """One small, non-streaming call used by a configured router classifier."""
-        result = self.provider.chat([{"role": "user", "content": prompt}], model=model, max_tokens=8,
-                                    hints={"purpose": "route"})
+        result = self.provider.chat([{"role": "user", "content": prompt}], model=model, max_tokens=5,
+                                    temperature=0, hints={"purpose": "route"})
         return result.content or ""
 
     def _fallback_model(self, session) -> bool:
