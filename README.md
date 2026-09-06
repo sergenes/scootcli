@@ -1,5 +1,13 @@
 # scoot
 
+[![PyPI](https://img.shields.io/pypi/v/scootcli.svg?label=PyPI)](https://pypi.org/project/scootcli/)
+[![tests](https://github.com/sergenes/scootcli/actions/workflows/tests.yml/badge.svg)](https://github.com/sergenes/scootcli/actions/workflows/tests.yml)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/downloads/)
+[![Dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen.svg)](#install-options)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey.svg)](#install-options)
+[![Providers](https://img.shields.io/badge/providers-OpenAI%20%7C%20Ollama%20%7C%20Anthropic-orange.svg)](#providers-and-models)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+
 ```
        ╭───╮      scoot: a tiny coding agent that goes where you point it.
        │o o│
