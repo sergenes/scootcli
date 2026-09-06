@@ -282,6 +282,13 @@ class Agent:
 
     def _messages(self, session, cfg=None) -> List[dict]:
         cfg = cfg or getattr(session, "config", None) or self.config
+        notes = getattr(session, "pending_notes", None)
+        if notes:
+            joined = "\n".join(n for n in notes if n)
+            notes.clear()
+            if joined:
+                session.messages.append({"role": "user",
+                                         "content": "Note from the user while you work:\n" + joined})
         system = build_agent_system_prompt(
             root=cfg.root,
             model=session.active_model,

@@ -121,3 +121,25 @@ Each is a drop-in module in `commands/`.
 12.1 One-shot mode prints the final answer and exits 0 on success, 1 on error; `--json` prints `{status, model, steps, content, error, usage}`.
 12.2 `--verbose` adds the model, step count, and token usage on stderr.
 12.3 Ctrl-C quits with exit code 130.
+
+## 13. Hooks
+
+13.1 Hooks are shell commands run at lifecycle events with a JSON payload on stdin: `SessionStart` (`source`: startup, resume, reset), `UserPromptSubmit` (`prompt`), `PreToolUse` (`tool_name`, `tool_input`, `tool_kind`), `PostToolUse` (plus `tool_response`: `ok`, `summary`, `error`, bounded `content`), `Stop` (`last_assistant_message`, `steps`, `usage`), `Notification` (`kind`: approval, max_steps, error; `message`), `SessionEnd` (`reason`).
+Common fields: `session_id`, `cwd`, `hook_event_name`, `model`, `transcript_path`.
+13.2 Configuration is `hooks.json` in the config directory (global) merged with `.scoot/hooks.json` under the workspace (project first), in the shape `{"Event": [{"matcher": "regex", "hooks": [{"type": "command", "command": "...", "timeout": 60}]}]}`; a top-level `hooks` key wrapping that object is accepted.
+`matcher` applies to `tool_name` for `PreToolUse` and `PostToolUse`.
+13.3 A hook decides with its exit code or JSON on stdout: exit 0 with empty stdout is no decision; exit 0 with `{"permissionDecision": "allow" | "deny" | "ask"}` (PreToolUse) or `{"decision": "block", "reason": ...}` (UserPromptSubmit, Stop) is that decision; exit 2 blocks or denies with stderr as the reason; plain stdout text is context; any other exit or a timeout is logged and ignored.
+Hooks run sequentially and the first blocking decision wins.
+13.4 Effects: a denied `PreToolUse` skips the tool and feeds `user declined via hook: <reason>` back to the model; `allow` skips scoot's own approval prompt; `ask` forces it even in `yolo`; a blocked `UserPromptSubmit` drops the prompt with the reason shown; context from `UserPromptSubmit` is appended to the prompt; a blocking `Stop` makes the agent continue with the reason as a user message, at most three times per turn.
+13.5 Hooks run with the workspace as working directory and `SCOOT_SESSION_ID` and `SCOOT_HOOK_EVENT` in the environment; they never receive API keys.
+`SCOOT_HOOKS=0` disables all hooks; `/hooks` lists the configuration and recent results, `/hooks reload` re-reads the files.
+13.6 The REPL, one-shot mode, and headless mode fire the same events.
+
+## 14. Headless mode
+
+14.1 `scoot --headless` reads one JSON object per line on stdin and writes one JSON object per line on stdout, nothing else on stdout; diagnostics go to stderr; the protocol is versioned (`ready.protocol`, currently 1) and only grows within a major version.
+14.2 Input types: `prompt` (`text`, optional `images`), `approve` (`id`, `decision` among allow, allow_tool, allow_session, deny, abort; optional `args`), `note` (`text`, delivered as a user message at the next model call), `interrupt`, `command` (`name`, `args`), `shutdown`; closing stdin is a shutdown.
+14.3 Output types: `ready`, `turn_start`, `activity`, `text_delta`, `assistant` (`final`), `tool_call`, `approval_request` (`id`, `name`, `args`, `kind`, `preview`, `options`, `timeout_s`), `tool_result`, `plan`, `turn_end` (`status` among done, interrupted, aborted, max_steps, error, blocked; `steps`, `model`, `usage`, `content`, `error`), `notice`, `command_output`, `error` (`kind` among protocol, turn, command, setup), `heartbeat` every 10 seconds, `bye`.
+14.4 Approvals follow the REPL's decision path; an unanswered request is denied after `SCOOT_APPROVAL_TIMEOUT` seconds (default 120).
+14.5 With no provider ready, headless mode emits one `error` of kind `setup` and exits 1; a bad input line is reported as a `protocol` error and skipped; a slash command's printed output is returned in `command_output`.
+14.6 Sessions, compaction, routing, tools, and hooks behave as in the REPL; the status bar, dock, and mascot are off.

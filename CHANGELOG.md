@@ -4,6 +4,11 @@ All notable changes to `scoot`. Format loosely follows [Keep a Changelog](https:
 Versions before 0.1.0 were internal builds of the tool's predecessor, renumbered `0.0.N` here and trimmed to what still describes the public tool.
 What comes next lives in [`ROADMAP.md`](./ROADMAP.md); the behaviour spec in [`SPEC.md`](./SPEC.md); design notes in [`DESIGN.md`](./DESIGN.md).
 
+## [Unreleased]
+- **Hooks:** shell commands on `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `Notification`, and `SessionEnd`, configured in `~/.config/scoot/hooks.json` and `.scoot/hooks.json` with Claude Code-shaped payloads and decisions (allow, deny, ask, block, context, exit 2). `/hooks` lists them; `SCOOT_HOOKS=0` disables.
+- **Headless mode:** `scoot --headless` speaks line-delimited JSON on stdin and stdout (prompts, approvals, notes, interrupts, commands in; streamed text, tool calls, approval requests, results, plans, usage, errors, heartbeat out). Protocol version 1, documented in `docs/headless-protocol.md`; `SCOOT_APPROVAL_TIMEOUT` bounds unanswered approvals.
+- Notes sent while a turn runs are delivered to the model at its next call.
+
 ## [0.3.0] — routing for auto, curl install, a friendlier first run (2026-09-06)
 - **Routing for `auto`:** opt-in per-turn model choice with rules from `~/.config/scoot/router.json` (conditions on complexity, images, size, prompt regex; first match wins; providers without a key are skipped), an optional small-model classifier with tier mapping, and the old heuristic as the built-in default. Routed once per turn. `/route` explains the decision; `/status` shows tokens per model.
 - **Nothing-configured state:** readiness checks with setup guidance in `auth`, `models`, one-shot, and the REPL; a dead local server fails fast with a hint instead of retrying; turns without a reply are not saved.

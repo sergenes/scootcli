@@ -59,6 +59,8 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="Don't inject the repo map (git + file tree) into the agent prompt.")
     parser.add_argument("--no-labels", action="store_true",
                         help="Hide the role labels/gutters (❯ you / ⏺ scoot) in the REPL transcript.")
+    parser.add_argument("--headless", action="store_true",
+                        help="Line-delimited JSON on stdin/stdout instead of the REPL (see docs/headless-protocol.md).")
     parser.add_argument("--no-logo", action="store_true",
                         help="Hide the mascot (launch banner art + status-bar face). Persist with /logo off.")
     parser.add_argument("--no-emoji", action="store_true",
@@ -283,6 +285,13 @@ def main(argv: Optional[List[str]] = None) -> int:
 
         prompt = _resolve_prompt(args)
         resume = _resolve_resume(config, args)
+        if args.headless:
+            if prompt is not None:
+                eprint(color("--headless takes prompts on stdin, not as an argument.", "yellow"))
+                return 2
+            from .headless import run_headless
+
+            return run_headless(config.override(panel=False, dock=False, logo=False), pool, resume=resume)
         if prompt is not None:
             return _run_once(config, pool, prompt, args.json, resume=resume)
         return _interactive(pool, resume=resume)
