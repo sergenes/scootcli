@@ -20,6 +20,7 @@ The status bar, the input dock, and the mascot are off.
 | `interrupt` | | cancels the running turn, like ESC in the REPL; the conversation is kept |
 | `command` | `name`, optional `args` | runs a slash command (`status`, `model`, `compact`, `reset`, `route`, `hooks`, ...); its text output comes back in `command_output`; `exit` shuts down |
 | `shutdown` | | saves the session and exits with code 0; closing stdin does the same |
+| `approve` (for a `scope_request`) | `id`, `decision`: `allow_once` \| `allow_dir` \| `allow_all` \| `deny` \| `abort` | answers a request for a path outside the workspace |
 
 ## Output messages (stdout)
 
@@ -32,6 +33,7 @@ The status bar, the input dock, and the mascot are off.
 | `assistant` | `text`, `final` (`false` for narration between tool calls, `true` for the complete streamed answer) |
 | `tool_call` | `id`, `name`, `args`, `kind` (`read` \| `write` \| `shell` \| `meta`), `auto_approved`, `decision` (when answered) |
 | `approval_request` | `id`, `name`, `args`, `kind`, `preview`, `options`, `timeout_s` |
+| `scope_request` | `id`, `name`, `path`, `options` (`allow_once`, `allow_dir`, `allow_all`, `deny`, `abort`), `timeout_s`; the tool wants a path outside the workspace; answer with `approve` |
 | `tool_result` | `name`, `ok`, `summary`, `error`, `content` (bounded) |
 | `plan` | `steps` (from `update_plan`: `step`, `status`) |
 | `turn_end` | `turn`, `status` (`done` \| `interrupted` \| `aborted` \| `max_steps` \| `error` \| `blocked`), `steps`, `model`, `usage`, `content`, `error` |

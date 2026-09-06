@@ -126,6 +126,40 @@ def _edit_args(args: dict) -> dict:
     return args
 
 
+SCOPE_CHOICES = ("once", "dir", "all", "deny", "abort")
+
+
+def request_scope(tool: Tool, path, ctx: ToolContext) -> str:
+    """Ask once about a path outside the workspace. Returns one of ``SCOPE_CHOICES``."""
+    from pathlib import Path as _P
+
+    p = _P(str(path))
+    where = p if p.is_dir() else p.parent
+    print(color(f"  ⌂ {tool.name} wants {p}", "yellow") + color("  (outside the workspace)", "gray"))
+    while True:
+        print(
+            "  "
+            + color("allow this path", "green") + " [a]  "
+            + color(f"allow {where} this session", "green") + " [d]  "
+            + color("allow anywhere this session", "green") + " [A]  "
+            + color("skip", "yellow") + " [s]  "
+            + color("quit", "red") + " [q] › ",
+            end="", flush=True,
+        )
+        key = read_key()
+        print(key)
+        if key in ("a", "y", "\r", "\n", ""):
+            return "once"
+        if key == "d":
+            return "dir"
+        if key == "A":
+            return "all"
+        if key == "s":
+            return "deny"
+        if key == "q":
+            return "abort"
+
+
 def request_approval(tool: Tool, args: dict, ctx: ToolContext) -> Approval:
     """Show the pending tool call and read the user's decision (with optional arg editing)."""
     while True:

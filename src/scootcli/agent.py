@@ -70,6 +70,12 @@ class HeadlessUI:
         self.events.append(("approve", tool.name, args))
         return Approval(self.decision, args)
 
+    scope_decision = "dir"  # what this headless UI answers to a scope question (tests override)
+
+    def approve_scope(self, tool, path, ctx) -> str:
+        self.events.append(("scope", tool.name, str(path)))
+        return self.scope_decision
+
     def auto_approved(self, tool, args) -> None:
         self.events.append(("auto", tool.name, args))
 
@@ -345,7 +351,16 @@ class Agent:
     # ── tool execution ───────────────────────────────────────────────────────────
     def _run_tools(self, session, tool_calls, ui, cancel_event, cfg=None) -> Optional[str]:
         cfg = cfg or getattr(session, "config", None) or self.config
-        ctx = ToolContext(root=cfg.root, config=cfg, cancel_event=cancel_event)
+        scope = getattr(session, "scope", None)
+        if scope is None:
+            from .tools.base import Scope
+
+            scope = Scope(cfg.root, everything=(getattr(cfg, "scope", "workspace") == "anywhere"))
+            try:
+                session.scope = scope
+            except Exception:
+                pass
+        ctx = ToolContext(root=cfg.root, config=cfg, cancel_event=cancel_event, scope=scope)
         mode = getattr(session, "approval_mode", "always")
         # Session trust-list: tools the user chose to auto-approve for the rest of the session.
         trusted = getattr(session, "trusted_tools", None)
@@ -368,6 +383,17 @@ class Agent:
                 self._append_tool(session, tc_id, f"error: unknown tool '{name}'")
                 continue
 
+            # Paths outside the workspace: ask the user once (this path, its directory, or anywhere).
+            outside = self._outside_paths(tool, args, ctx)
+            if outside:
+                verdict = self._ask_scope(session, tool, outside, ctx, ui)
+                if verdict == "abort":
+                    self._append_tool(session, tc_id, "user aborted the operation")
+                    return "abort"
+                if verdict == "deny":
+                    self._append_tool(session, tc_id, f"user declined access outside the workspace: {outside[0]}")
+                    ui.tool_result(name, ToolResult(ok=False, summary="outside the workspace: declined"))
+                    continue
             # A PreToolUse hook may deny (skip the tool), allow (skip the prompt), or ask (force it).
             hook_action, hook_reason = self._pre_tool_hook(session, tool, args, cancel_event)
             if hook_action == "deny":
@@ -418,6 +444,46 @@ class Agent:
             payload = result.content if result.ok else f"ERROR: {result.error}"
             self._append_tool(session, tc_id, payload or "(no output)")
         return None
+
+    @staticmethod
+    def _outside_paths(tool, args, ctx) -> "list":
+        from .tools.base import resolve_path
+
+        scope = ctx.scope
+        found = []
+        for raw in tool.paths(args):
+            try:
+                p = resolve_path(ctx.root, raw)
+            except Exception:
+                continue
+            if scope is None or not scope.allows(p):
+                found.append(p)
+        return found
+
+    def _ask_scope(self, session, tool, paths, ctx, ui) -> str:
+        """Ask for the first outside path; grant per the answer. Returns once|dir|all|deny|abort."""
+        scope = ctx.scope
+        if getattr(session, "config", None) is not None and getattr(session.config, "scope", "") == "anywhere":
+            scope.grant_all()
+            return "all"
+        asker = getattr(ui, "approve_scope", None)
+        if asker is None:
+            return "deny"
+        from .hooks import notify
+
+        notify(session, "scope", f"{tool.name} wants {paths[0]} outside the workspace")
+        verdict = asker(tool, paths[0], ctx)
+        if verdict == "once":
+            for p in paths:
+                scope.grant(p)
+        elif verdict == "dir":
+            for p in paths:
+                scope.grant_dir(p)
+            ui.assistant(f"allowing {scope.granted[-1]} for the rest of this session.")
+        elif verdict == "all":
+            scope.grant_all()
+            ui.assistant("allowing access anywhere on this machine for the rest of this session.")
+        return verdict
 
     @staticmethod
     def _handle_result(session, name: str, result: ToolResult, ui) -> None:

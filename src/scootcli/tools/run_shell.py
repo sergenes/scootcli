@@ -28,7 +28,7 @@ class RunShell(Tool):
         "type": "object",
         "properties": {
             "command": {"type": "string", "description": "The shell command to run."},
-            "cwd": {"type": "string", "description": "Working dir relative to root (optional)."},
+            "cwd": {"type": "string", "description": "Working directory (optional): relative to the workspace, or absolute."},
         },
         "required": ["command"],
     }
@@ -45,7 +45,7 @@ class RunShell(Tool):
         cwd = ctx.root
         if args.get("cwd"):
             try:
-                cwd = safe_path(ctx.root, args["cwd"])
+                cwd = safe_path(ctx.root, args["cwd"], ctx.scope)
             except ToolError as exc:
                 return ToolResult.fail(str(exc))
             if not cwd.is_dir():

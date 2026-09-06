@@ -25,6 +25,7 @@ def _run(session, args: str):
         ("env files", ", ".join(getattr(cfg, "env_files", ()) or ()) or "none"),
         ("root", str(cfg.root)),
         ("approval", session.approval_mode),
+        ("scope", getattr(session, "scope", None).describe() if getattr(session, "scope", None) else "workspace"),
         ("streaming", "on" if getattr(cfg, "stream", True) else "off"),
         ("panel", "on" if getattr(session, "status_bar", None) and session.status_bar.enabled
                   else "off"),

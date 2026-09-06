@@ -23,7 +23,7 @@ class ListDir(Tool):
     def run(self, args: dict, ctx: ToolContext) -> ToolResult:
         raw = args.get("path") or "."
         try:
-            path = safe_path(ctx.root, raw)
+            path = safe_path(ctx.root, raw, ctx.scope)
         except ToolError as exc:
             return ToolResult.fail(str(exc))
         if not path.exists():

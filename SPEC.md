@@ -69,7 +69,11 @@ Each call receives the system prompt, the conversation, and the schemas of all r
 ## 6. Tools
 
 6.1 Built-in tools: `read_file`, `list_dir`, `search`, `write_file`, `edit_file`, `run_shell`, `open_editor`, `update_plan`.
-6.2 Every path is resolved inside the workspace root; an escape attempt is rejected.
+6.2 Paths are resolved against the workspace root with `~` expanded; the workspace is always allowed.
+A path outside it is not rejected: before the tool runs, the user is asked once, with the choices allow this path, allow its directory for the session, allow anywhere for the session, skip, or abort; grants live on the session (`/scope` shows and changes them, `/status` reports them).
+`SCOOT_SCOPE=anywhere`, `--scope anywhere`, `/scope anywhere`, and `--yes` skip the question; `/scope workspace` revokes.
+A declined access is fed back to the model as `user declined access outside the workspace: <path>`.
+The system prompt tells the model that the workspace is its home, not a wall, so it uses absolute paths elsewhere instead of refusing or handing the user a script.
 6.3 `search` groups matches per file with bounded output; `edit_file` applies an exact replacement and reports a diff; `write_file` reports the diff against any existing content.
 6.4 `run_shell` executes with a timeout and captures bounded output; its child runs with stdin closed and pagers and interactive prompts disabled (`GIT_PAGER=cat`, `GIT_TERMINAL_PROMPT=0`, and similar), so a command that would wait for input fails fast instead of hanging; commands matching the denylist (recursive deletes of root paths, force pushes, piping downloads to a shell, disk formatting, and similar) require confirmation in every approval mode.
 6.4a `open_editor` opens a workspace file in an external editor, `idea -e` (IntelliJ LightEdit) by default or VS Code, as a detached process; the editor comes from the call, else `SCOOT_EDITOR`; it is approval-gated like `run_shell` and fails with an install hint when the launcher is missing.
@@ -83,6 +87,7 @@ The default is `yolo`.
 7.2 At a prompt the choices are approve once, trust this tool for the session, approve everything this session (switches to `yolo`), edit the arguments, skip this call, or abort the turn.
 7.3 Denylisted shell commands are confirmed regardless of mode or trust.
 7.4 `--yes` / `-y` runs a one-shot turn with everything auto-approved.
+7.4a The scope question (6.2) is asked in every approval mode, including `yolo`, unless the scope is `anywhere`; hooks receive a `Notification` of kind `scope` when it is asked.
 7.5 `/worktree start` creates a throwaway git worktree on a `scoot/<timestamp>` branch and points the tools there; `/worktree merge` brings the result back, `/worktree discard` drops it.
 
 ## 8. The REPL
@@ -140,7 +145,7 @@ Hooks run sequentially and the first blocking decision wins.
 
 14.1 `scoot --headless` reads one JSON object per line on stdin and writes one JSON object per line on stdout, nothing else on stdout; diagnostics go to stderr; the protocol is versioned (`ready.protocol`, currently 1) and only grows within a major version.
 14.2 Input types: `prompt` (`text`, optional `images`), `approve` (`id`, `decision` among allow, allow_tool, allow_session, deny, abort; optional `args`), `note` (`text`, delivered as a user message at the next model call), `interrupt`, `command` (`name`, `args`), `shutdown`; closing stdin is a shutdown.
-14.3 Output types: `ready`, `turn_start`, `activity`, `text_delta`, `assistant` (`final`), `tool_call`, `approval_request` (`id`, `name`, `args`, `kind`, `preview`, `options`, `timeout_s`), `tool_result`, `plan`, `turn_end` (`status` among done, interrupted, aborted, max_steps, error, blocked; `steps`, `model`, `usage`, `content`, `error`), `notice`, `command_output`, `error` (`kind` among protocol, turn, command, setup), `heartbeat` every 10 seconds, `bye`.
+14.3 Output types: `ready`, `turn_start`, `activity`, `text_delta`, `assistant` (`final`), `tool_call`, `approval_request` (`id`, `name`, `args`, `kind`, `preview`, `options`, `timeout_s`), `scope_request` (`id`, `name`, `path`, `options` allow_once, allow_dir, allow_all, deny, abort; answered with `approve`), `tool_result`, `plan`, `turn_end` (`status` among done, interrupted, aborted, max_steps, error, blocked; `steps`, `model`, `usage`, `content`, `error`), `notice`, `command_output`, `error` (`kind` among protocol, turn, command, setup), `heartbeat` every 10 seconds, `bye`.
 14.4 Approvals follow the REPL's decision path; an unanswered request is denied after `SCOOT_APPROVAL_TIMEOUT` seconds (default 120).
 14.5 With no provider ready, headless mode emits one `error` of kind `setup` and exits 1; a bad input line is reported as a `protocol` error and skipped; a slash command's printed output is returned in `command_output`.
 14.6 Sessions, compaction, routing, tools, and hooks behave as in the REPL; the status bar, dock, and mascot are off.
