@@ -81,6 +81,36 @@ scoot --model auto "..."             # pick a model per prompt from the live lis
 ```
 
 Inside the REPL, `/model <provider/model>` switches and is remembered for the next launch; `/model default` goes back to the provider's preferred model.
+
+### Routing
+
+`auto` is opt-in (`--model auto`, `SCOOT_MODEL=auto`, or `/model auto`) because choosing costs a decision per turn.
+Without any configuration it uses a built-in heuristic over the models your providers actually list: a strong coding model for multi-step or editing prompts, a cheaper one for short questions, never a dated snapshot.
+A turn is routed once, at its first model call, and stays on that model.
+
+Write your own rules in `~/.config/scoot/router.json` (or the file named by `SCOOT_ROUTER`); first match wins, and a rule whose provider has no key is skipped:
+
+```json
+{
+  "rules": [
+    {"when": {"has_images": true},        "use": "anthropic/claude-opus-5"},
+    {"when": {"complex": true},           "use": "openai/gpt-5.3-codex"},
+    {"when": {"est_tokens_over": 60000},  "use": "anthropic/claude-sonnet-5"},
+    {"when": {"prompt_matches": "(?i)translate|summari[sz]e"}, "use": "ollama/qwen3"}
+  ],
+  "default": "ollama/llama3.2",
+  "classifier": {
+    "model": "ollama/llama3.2",
+    "tiers": {"simple": "ollama/llama3.2", "coding": "openai/gpt-5.3-codex", "hard": "anthropic/claude-opus-5"}
+  }
+}
+```
+
+Conditions: `complex`, `has_images`, `needs_tools`, `est_tokens_over`, `prompt_matches`.
+The optional `classifier` asks a small model one question per turn ("simple, coding, or hard?") and maps the answer to a tier; it adds a short call, and any failure falls through to the rules.
+Expect it to be rough with a 3B local model: on a hand-labelled set of seven prompts, `llama3.2` and `qwen2.5` each got four right, mostly confusing "coding" with "hard".
+The rules are deterministic, so put the decisions you care about there, and if you want a better judge, name a cheap hosted model as the classifier (`openai/gpt-5-mini`), which costs a few hundred tokens per turn.
+`/route` shows the rules in force and why the current model was picked; `/status` shows tokens per model.
 `SCOOT_EFFORT` (`low` | `medium` | `high` | `xhigh`, default `medium`) sets the reasoning effort for models that take it, on both OpenAI and Anthropic.
 On Claude Opus 5 the server-side refusal fallback is requested by default, so a declined request is retried on another Claude model inside the same call; `SCOOT_ANTHROPIC_FALLBACKS=0` turns that off.
 

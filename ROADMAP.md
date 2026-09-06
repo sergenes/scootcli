@@ -20,10 +20,9 @@ The Anthropic Messages API adapter on the provider layer, live-verified on `clau
 
 - ✅ **Install script** (2026-09-06). `install.sh` at the repo root, served raw from GitHub: checks for Python 3.9+, downloads the latest `scoot.pyz` from the GitHub release, installs it as `~/.local/bin/scoot`, prints a PATH hint. The README lists it as the second install option after `pipx`:
   `curl -fsSL https://raw.githubusercontent.com/sergenes/scootcli/main/install.sh | bash`
-- **`RouterProvider`**: implements the `Provider` protocol and delegates each request to a real provider using `ChatRequest.hints` (task text, images, tools needed, estimated tokens) and rules from `SCOOT_ROUTER`.
-- Optional classifier: ask a small local model (Ollama) which tier a request needs before sending it to a hosted one.
-- Per-provider spend accounting in `/status` from the normalized usage.
-- The `auto` heuristic in `models.py` becomes the router's first rule set.
+- ✅ **Routing** (2026-09-06). `providers/router.py`: `auto` is opt-in and routes once per turn from a classifier (optional), then `router.json` rules, then a default, then the built-in heuristic. Design note: routing is a model chooser at turn start rather than a provider wrapper, because a turn must stay on one model for reasoning and thinking replay to work; the pool still dispatches by prefix.
+- ✅ Per-model spend in `/status`, `/route` explains decisions.
+- Release 0.3.0: version bump, changelog heading, build, upload, tag.
 
 ## 0.4.0: hooks and headless mode
 

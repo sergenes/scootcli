@@ -19,7 +19,10 @@ A bare model name is resolved against the default provider.
 2.2 Built-in providers are `openai` (OpenAI Responses API, key `OPENAI_API_KEY`, required), `anthropic` (Anthropic Messages API, key `ANTHROPIC_API_KEY`, required, default model `claude-opus-5`), and `ollama` (local Responses API at `http://localhost:11434/v1`, no key).
 2.3 The default provider is `SCOOT_PROVIDER` when set; otherwise the first registered provider that requires a key and has one; otherwise `ollama`.
 2.4 The model preference is `default` unless set: the default provider's first preferred model (`gpt-5.3-codex` for OpenAI, `llama3.2` for Ollama).
-2.5 The `auto` preference picks a model per turn from the live model list: a strong coding model for multi-step or editing prompts, a cheaper one for short questions, never a dated snapshot id when a plain id exists, and falls back to the `default` resolution when the list is empty.
+2.5 The `auto` preference routes once per turn, at the first model call, and the turn stays on that model.
+Order: a configured classifier (a small model asked "simple, coding, or hard?", mapped to a tier), then the rules in `~/.config/scoot/router.json` or `SCOOT_ROUTER` (first match wins; conditions `complex`, `has_images`, `needs_tools`, `est_tokens_over`, `prompt_matches`; a rule naming a provider without a key is skipped; an unknown condition never matches), then the file's `default`, then the built-in heuristic over the live model list: a strong coding model for multi-step or editing prompts, a cheaper one for short questions, never a dated snapshot id when a plain id exists, falling back to the `default` resolution when the list is empty.
+An invalid rules file is reported by `/route` and the built-in heuristic applies.
+2.5a `/route` shows the rule source, the rules, the classifier, and the last decision with its reason; `/status` shows tokens per model when more than one model was used or `auto` is on.
 2.6 `scoot models` lists models from every configured provider with qualified ids, grouped by provider, marking the default; providers that fail to answer are reported, not fatal.
 `--provider NAME` restricts the list; `--json` returns `{"models": [...], "errors": {...}}`.
 2.7 Each provider's base URL can be overridden with `SCOOT_<PROVIDER>_BASE_URL`.
