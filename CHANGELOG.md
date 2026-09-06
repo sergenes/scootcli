@@ -4,7 +4,7 @@ All notable changes to `scoot`. Format loosely follows [Keep a Changelog](https:
 Versions before 0.1.0 were internal builds of the tool's predecessor, renumbered `0.0.N` here and trimmed to what still describes the public tool.
 What comes next lives in [`ROADMAP.md`](./ROADMAP.md); the behaviour spec in [`SPEC.md`](./SPEC.md); design notes in [`DESIGN.md`](./DESIGN.md).
 
-## [Unreleased]
+## [0.3.0] — routing for auto, curl install, a friendlier first run (2026-09-06)
 - **Routing for `auto`:** opt-in per-turn model choice with rules from `~/.config/scoot/router.json` (conditions on complexity, images, size, prompt regex; first match wins; providers without a key are skipped), an optional small-model classifier with tier mapping, and the old heuristic as the built-in default. Routed once per turn. `/route` explains the decision; `/status` shows tokens per model.
 - **Nothing-configured state:** readiness checks with setup guidance in `auth`, `models`, one-shot, and the REPL; a dead local server fails fast with a hint instead of retrying; turns without a reply are not saved.
 - **Install script:** `curl -fsSL https://raw.githubusercontent.com/sergenes/scootcli/main/install.sh | bash` installs the latest release's zipapp as `~/.local/bin/scoot`; `SCOOT_VERSION` pins, `SCOOT_INSTALL_DIR` relocates. CI runs it against the live release on Linux and macOS.
