@@ -44,7 +44,7 @@ The workspace is the default, not a wall: a file tool that needs a path outside 
 Verification done 2026-09-06, on Linux by hand: bar, dock, paste, ESC, `/c` copy, and `/compact` on a real long session, all as expected.
 Still owed: the same look in iTerm2, and more Linux runs as the first users report (the first two each found a real problem, the third found none).
 
-Small, done for 0.6.0 (2026-09-06): cost per model in `/status`, the opt-in update check, the Ctrl-N mid-turn note, classifier guidance, `install.sh --uninstall`.
+Small, released in 0.6.0 (2026-09-06): cost per model in `/status`, the opt-in update check, the Ctrl-N mid-turn note, classifier guidance, `install.sh --uninstall`.
 
 Larger:
 - Windows: the input dock and ESC handling use termios and raw mode, so scoot runs on Windows only under WSL today; a native path needs the `msvcrt` equivalents and a status bar that survives the console.
