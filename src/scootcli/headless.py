@@ -285,6 +285,7 @@ class Headless:
         self.cancel = threading.Event()
         self.ui.cancel_event = self.cancel
         self.session.last_error = ""
+        before = self._session_cost()
         try:
             with redirect_stdout(sys.stderr):  # any stray print from a tool or command stays off the protocol
                 try:
@@ -303,6 +304,7 @@ class Headless:
                 self.writer.emit("error", message=outcome.error, kind="turn")
             self.writer.emit("turn_end", turn=self._turn, status=outcome.status, steps=outcome.steps,
                              model=self.session.active_model, usage=self.session.last_usage,
+                             cost=self._turn_cost(before), cost_session=self._session_cost(),
                              content=outcome.content, error=outcome.error)
         except ScootError as exc:
             self.writer.emit("error", message=str(exc), hint=getattr(exc, "hint", ""), kind="turn")
@@ -312,6 +314,19 @@ class Headless:
             self.busy = False
             self.cancel = None
             self.ui.cancel_event = None
+
+    def _session_cost(self):
+        fn = getattr(self.session, "session_cost", None)
+        try:
+            return fn() if callable(fn) else None
+        except Exception:
+            return None
+
+    def _turn_cost(self, before):
+        after = self._session_cost()
+        if after is None or before is None:
+            return None
+        return round(after - before, 6)
 
     def _command(self, msg: dict) -> None:
         from . import commands

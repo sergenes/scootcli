@@ -194,6 +194,7 @@ def _run_once(config: Config, pool: ProviderPool, prompt: str, as_json: bool, re
             "content": outcome.content,
             "error": outcome.error,
             "usage": session.last_usage,
+            "cost": session.session_cost(),
         }, indent=2))
         return 0 if outcome.status == "done" else 1
 

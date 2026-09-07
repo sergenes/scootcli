@@ -219,8 +219,10 @@ class Agent:
             return "", ""
         from .hooks import tool_kind
 
+        from .hooks import tool_alias
+
         payload = hooks.payload(session, "PreToolUse", tool_name=tool.name, tool_input=args,
-                                tool_kind=tool_kind(tool))
+                                tool_kind=tool_kind(tool), tool_alias=tool_alias(tool.name))
         decision = hooks.run("PreToolUse", payload, cancel_event)
         return decision.action, decision.reason
 
@@ -232,9 +234,11 @@ class Agent:
 
         response = {"ok": result.ok, "summary": result.summary or "", "error": result.error or "",
                     "content": (result.content or "")[:4000]}
+        from .hooks import tool_alias
+
         hooks.run("PostToolUse", hooks.payload(session, "PostToolUse", tool_name=tool.name,
                                                tool_input=args, tool_kind=tool_kind(tool),
-                                               tool_response=response))
+                                               tool_alias=tool_alias(tool.name), tool_response=response))
 
     @staticmethod
     def _last_user_text(session) -> str:

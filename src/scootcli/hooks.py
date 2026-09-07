@@ -36,6 +36,12 @@ EVENTS = ("SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop
 DEFAULT_TIMEOUT = 60
 _MAX_CAPTURE = 16_000
 _TOOL_KINDS = {"read": "read", "write": "write", "shell": "shell"}
+# Claude Code's names for the same jobs, so a hooks.json written for it ("matcher": "Bash|Write|Edit")
+# fires for scoot's tools too, and a shared script can switch on ``tool_alias``.
+TOOL_ALIASES = {
+    "read_file": "Read", "list_dir": "LS", "search": "Grep", "write_file": "Write", "edit_file": "Edit",
+    "run_shell": "Bash", "open_editor": "Open", "update_plan": "TodoWrite",
+}
 
 
 @dataclass
@@ -96,6 +102,19 @@ def tool_kind(tool) -> str:
     return _TOOL_KINDS.get(getattr(tool, "risk", ""), "read")
 
 
+def tool_alias(name: str) -> str:
+    return TOOL_ALIASES.get(name, name)
+
+
+def matcher_hits(matcher: str, tool_name: str) -> bool:
+    """A matcher regex matches scoot's tool name or its Claude Code alias."""
+    try:
+        rx = re.compile(str(matcher))
+    except re.error:
+        return False
+    return bool(rx.search(tool_name) or rx.search(tool_alias(tool_name)))
+
+
 class Hooks:
     """The merged hook configuration for one workspace, plus a record of what ran."""
 
@@ -149,10 +168,7 @@ class Hooks:
         for entry in self.config.get(event, []):
             matcher = entry.get("matcher")
             if matcher and event in ("PreToolUse", "PostToolUse"):
-                try:
-                    if not re.search(str(matcher), tool_name):
-                        continue
-                except re.error:
+                if not matcher_hits(matcher, tool_name):
                     continue
             for hook in entry.get("hooks", []):
                 if not isinstance(hook, dict) or hook.get("type", "command") != "command":

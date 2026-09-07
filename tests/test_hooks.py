@@ -259,3 +259,17 @@ def test_interpret_accepts_claude_codes_nested_output():
     assert i("Stop", {"decision": "block", "reason": "more"}).action == "block"
     assert i("PreToolUse", {"decision": "approve"}).action == "allow"
     assert i("PreToolUse", {"additionalContext": "x"}).context == "x"
+
+
+def test_matcher_matches_claude_code_tool_names(tmp_path):
+    from scootcli.hooks import matcher_hits, tool_alias
+
+    assert tool_alias("run_shell") == "Bash" and tool_alias("edit_file") == "Edit" and tool_alias("nope") == "nope"
+    assert matcher_hits("Bash|Write|Edit", "run_shell") and matcher_hits("Bash|Write|Edit", "edit_file")
+    assert not matcher_hits("Bash|Write|Edit", "read_file")
+    assert matcher_hits("run_shell", "run_shell") and matcher_hits("^Read$", "read_file")
+    assert not matcher_hits("[", "run_shell")  # a broken regex never matches
+    deny = _script(tmp_path, "denybash", 'print(json.dumps({"permissionDecision": "deny", "reason": "claude-style matcher"}))')
+    h = _hooks(tmp_path, {"PreToolUse": [{"matcher": "Bash", "hooks": [{"command": deny}]}]})
+    assert h.run("PreToolUse", {"tool_name": "run_shell"}).action == "deny"
+    assert h.run("PreToolUse", {"tool_name": "read_file"}).action == ""

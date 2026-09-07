@@ -127,7 +127,7 @@ Each is a drop-in module in `commands/`.
 
 ## 12. Output and exit codes
 
-12.1 One-shot mode prints the final answer and exits 0 on success, 1 on error; `--json` prints `{status, model, steps, content, error, usage}`.
+12.1 One-shot mode prints the final answer and exits 0 on success, 1 on error; `--json` prints `{status, model, steps, content, error, usage, cost}` (`cost` is null when a model's price is unknown).
 12.2 `--verbose` adds the model, step count, and token usage on stderr.
 12.3 Ctrl-C quits with exit code 130.
 
@@ -136,7 +136,7 @@ Each is a drop-in module in `commands/`.
 13.1 Hooks are shell commands run at lifecycle events with a JSON payload on stdin: `SessionStart` (`source`: startup, resume, reset), `UserPromptSubmit` (`prompt`), `PreToolUse` (`tool_name`, `tool_input`, `tool_kind`), `PostToolUse` (plus `tool_response`: `ok`, `summary`, `error`, bounded `content`), `Stop` (`last_assistant_message`, `steps`, `usage`), `Notification` (`kind`: approval, max_steps, error; `message`), `SessionEnd` (`reason`).
 Common fields: `session_id`, `cwd`, `hook_event_name`, `model`, `transcript_path`.
 13.2 Configuration is `hooks.json` in the config directory (global) merged with `.scoot/hooks.json` under the workspace (project first), in the shape `{"Event": [{"matcher": "regex", "hooks": [{"type": "command", "command": "...", "timeout": 60}]}]}`; a top-level `hooks` key wrapping that object is accepted.
-`matcher` applies to `tool_name` for `PreToolUse` and `PostToolUse`.
+`matcher` applies to `tool_name` for `PreToolUse` and `PostToolUse`, and also to the tool's Claude Code alias (`run_shell` is `Bash`, `write_file` is `Write`, `edit_file` is `Edit`, `read_file` is `Read`, `search` is `Grep`, `list_dir` is `LS`, `update_plan` is `TodoWrite`), so a matcher written for Claude Code fires for scoot's tools; the payload carries the alias as `tool_alias`.
 13.3 A hook decides with its exit code or JSON on stdout: exit 0 with empty stdout is no decision; exit 0 with `{"permissionDecision": "allow" | "deny" | "ask"}` (PreToolUse) or `{"decision": "block", "reason": ...}` (UserPromptSubmit, Stop) is that decision; exit 2 blocks or denies with stderr as the reason; plain stdout text is context; any other exit or a timeout is logged and ignored.
 Claude Code's nested form is accepted unchanged: `{"hookSpecificOutput": {"permissionDecision": ..., "permissionDecisionReason": ..., "additionalContext": ...}}`, with `approve` read as `allow`.
 Hooks run sequentially and the first blocking decision wins.
