@@ -2,6 +2,9 @@
 
 Precedence (highest wins):
   CLI flag → environment variable → project ``.env`` → global ``~/.config/scoot/.env`` → default.
+The model has two more layers between the ``.env`` files and the default: the model saved for this
+workspace root, then the one saved for every folder (see ``preferences.py``); ``model_source`` says
+which layer answered.
 
 Two optional ``.env`` files are read: the global one in scoot's config home, and the nearest ``.env``
 found walking up from the current directory (so a repo-root file applies from any subdirectory).
@@ -129,16 +132,23 @@ def is_model_alias(model: Optional[str]) -> bool:
     return (model or "").strip().lower() in (DEFAULT_MODEL_ALIAS, AUTO_MODEL_ALIAS, "")
 
 
-def _resolve_model_setting(model_env: Optional[str]) -> str:
-    """Model precedence (below the CLI flag, applied later): SCOOT_MODEL → saved pref → default."""
-    if model_env:
-        return model_env
-    try:
-        from .preferences import get_model
+MODEL_SOURCES = ("flag", "env", "folder", "everywhere", "default")
 
-        return get_model() or DEFAULT_MODEL_ALIAS
+
+def _resolve_model_setting(model_env: Optional[str], root=None) -> Tuple[str, str]:
+    """``(model, source)`` below the CLI flag (applied later): SCOOT_MODEL → the model saved for
+    ``root`` → the model saved for every folder → default."""
+    if model_env:
+        return model_env, "env"
+    try:
+        from .preferences import get_model, model_source
+
+        saved = get_model(root)
+        if saved:
+            return saved, model_source(root) or "everywhere"
     except Exception:
-        return DEFAULT_MODEL_ALIAS
+        pass
+    return DEFAULT_MODEL_ALIAS, "default"
 
 
 def _resolve_logo_setting(logo_env: Optional[str]) -> bool:
@@ -161,6 +171,7 @@ class Config:
     proxy: str = DEFAULT_PROXY
     provider: str = ""  # default provider name; empty → first provider with a key, else ollama
     model: str = DEFAULT_MODEL_ALIAS  # "default" | "auto" | a model id, ideally provider/model
+    model_source: str = "default"  # where ``model`` came from: flag | env | folder | everywhere | default
     effort: str = "medium"  # reasoning effort for models that take it: low | medium | high | xhigh
     timeout: int = 120
     max_steps: int = 50
@@ -194,17 +205,20 @@ class Config:
             load_dotenv(env_file)
 
         get = os.environ.get
+        root = Path(get("SCOOT_ROOT", str(cwd))).resolve()
+        model, model_source = _resolve_model_setting(get("SCOOT_MODEL"), root)
         return cls(
             proxy=get("HTTPS_PROXY") or get("https_proxy") or DEFAULT_PROXY,
             env_files=tuple(str(f) for f in files),
             provider=get("SCOOT_PROVIDER", "").strip().lower(),
-            model=_resolve_model_setting(get("SCOOT_MODEL")),
+            model=model,
+            model_source=model_source,
             effort=get("SCOOT_EFFORT", "medium").strip().lower(),
             timeout=int(get("SCOOT_TIMEOUT", "120")),
             max_steps=int(get("SCOOT_MAX_STEPS", "50")),
             compact_at=int(get("SCOOT_COMPACT_AT", "100000")),
             approval=get("SCOOT_APPROVAL", "yolo"),
-            root=Path(get("SCOOT_ROOT", str(cwd))).resolve(),
+            root=root,
             verbose=_as_bool(get("SCOOT_VERBOSE", "false")),
             stream=_as_bool(get("SCOOT_STREAM", "true")),
             panel=_as_bool(get("SCOOT_PANEL", "true")),
@@ -223,10 +237,18 @@ class Config:
         )
 
     def override(self, **kwargs) -> "Config":
-        """Return a copy with the given (non-None) fields overridden — the CLI-flag layer."""
+        """Return a copy with the given (non-None) fields overridden: the CLI-flag layer.
+
+        A ``model`` here is the flag. A new ``root`` (``--root``) without one re-resolves the saved
+        model for that folder, unless the flag or ``SCOOT_MODEL`` already decided it.
+        """
         clean = {k: v for k, v in kwargs.items() if v is not None}
         if "root" in clean:
             clean["root"] = Path(clean["root"]).resolve()
+        if "model" in clean:
+            clean.setdefault("model_source", "flag")
+        elif "root" in clean and self.model_source not in ("flag", "env") and clean["root"] != self.root:
+            clean["model"], clean["model_source"] = _resolve_model_setting(None, clean["root"])
         return replace(self, **clean)
 
     def resolve_model(self, task_hint: str = "") -> str:

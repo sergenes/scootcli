@@ -229,9 +229,9 @@ def _interactive(pool: ProviderPool, resume=None, remember_model: Optional[str] 
     """Launch the persistent REPL (banner, live status, ESC-interrupt, slash-commands).
 
     ``remember_model`` is the model named on the command line (``--model``), if any. Launching the REPL
-    with it counts as choosing it, exactly like ``/model`` inside the REPL, so it is saved as the
-    preference and a plain ``scoot`` next time starts on the same model. One-shot prompts and headless
-    runs do not save it: a flag on a single command is not a choice for the next session.
+    with it counts as choosing it for this folder, exactly like ``/model`` inside the REPL, so a plain
+    ``scoot`` here next time starts on the same model. One-shot prompts and headless runs do not save
+    it: a flag on a single command is not a choice for the next session.
     """
     from .repl import Repl
 
@@ -239,7 +239,7 @@ def _interactive(pool: ProviderPool, resume=None, remember_model: Optional[str] 
     if remember_model and remember_model.strip():
         from .preferences import set_model
 
-        set_model(remember_model.strip())
+        set_model(remember_model.strip(), root=config.root)
     # resume=auto (SCOOT_RESUME / --resume-last): reload the latest session for this directory
     # unless the user already picked one explicitly via --resume/--continue.
     if resume is None and getattr(config, "resume", "hint") == "auto":

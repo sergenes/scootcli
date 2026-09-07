@@ -1,8 +1,9 @@
 """Persisted user preferences (the chosen model, the mascot toggle), surviving across launches.
 
-Unlike sessions (per-directory conversations), this is a single *global* preference file at
-``~/.config/scoot/preferences.json``. Writing is best-effort — a failure never breaks the CLI.
-``SCOOT_CONFIG_DIR`` overrides the location (used by tests).
+One file at ``~/.config/scoot/preferences.json`` (``SCOOT_CONFIG_DIR`` overrides the location, used by
+tests). The model preference has two layers: ``models`` maps a workspace root to the model chosen
+there (``/model`` or ``--model`` in that folder), and ``model`` is the choice for every folder without
+one (``/model X everywhere``). Writing is best-effort: a failure never breaks the CLI.
 """
 
 from __future__ import annotations
@@ -60,18 +61,74 @@ def save_preference(key: str, value) -> None:
 
 
 # ── model preference ────────────────────────────────────────────────────────────
-def get_model() -> Optional[str]:
-    model = load_preferences().get("model")
-    return model or None
+FOLDER = "folder"        # the model saved for this workspace root
+EVERYWHERE = "everywhere"  # the model saved for every folder without its own
 
 
-def set_model(name: str) -> None:
-    """Persist the chosen model (including ``auto``) so the next launch reuses it."""
-    save_preference("model", name)
+def _root_key(root) -> str:
+    return str(Path(root).expanduser().resolve())
 
 
-def clear_model() -> None:
-    save_preference("model", None)
+def _folder_models(prefs: dict) -> dict:
+    models = prefs.get("models")
+    return models if isinstance(models, dict) else {}
+
+
+def saved_models(root=None):
+    """``(folder_model, global_model)``: what is saved for ``root`` (``None`` without a root) and for
+    everywhere; either may be ``None``."""
+    prefs = load_preferences()
+    folder = _folder_models(prefs).get(_root_key(root)) if root is not None else None
+    return (folder or None), (prefs.get("model") or None)
+
+
+def get_model(root=None) -> Optional[str]:
+    """The saved model that applies in ``root``: the folder's own choice, else the global one."""
+    folder, everywhere = saved_models(root)
+    return folder or everywhere
+
+
+def model_source(root=None) -> Optional[str]:
+    """Which layer :func:`get_model` answered from: ``"folder"``, ``"everywhere"``, or ``None``."""
+    folder, everywhere = saved_models(root)
+    return FOLDER if folder else (EVERYWHERE if everywhere else None)
+
+
+def set_model(name: str, root=None) -> None:
+    """Persist the chosen model (including ``auto`` / ``default``) so the next launch reuses it: for
+    the folder ``root`` when given, otherwise for every folder (which also drops the folder's own
+    entry when ``root`` is passed as ``everywhere=True`` via :func:`set_model_everywhere`)."""
+    if root is None:
+        save_preference("model", name)
+        return
+    prefs = load_preferences()
+    models = dict(_folder_models(prefs))
+    models[_root_key(root)] = name
+    prefs["models"] = models
+    _write(prefs)
+
+
+def set_model_everywhere(name: str, root=None) -> None:
+    """Make ``name`` the model for every folder, and forget ``root``'s own choice so it applies there too."""
+    prefs = load_preferences()
+    prefs["model"] = name
+    if root is not None:
+        models = dict(_folder_models(prefs))
+        models.pop(_root_key(root), None)
+        prefs["models"] = models
+    _write(prefs)
+
+
+def clear_model(root=None) -> None:
+    """Forget the saved model: the folder's own entry when ``root`` is given, else the global one."""
+    if root is None:
+        save_preference("model", None)
+        return
+    prefs = load_preferences()
+    models = dict(_folder_models(prefs))
+    if models.pop(_root_key(root), None) is not None:
+        prefs["models"] = models
+        _write(prefs)
 
 
 # ── mascot preference ───────────────────────────────────────────────────────────
