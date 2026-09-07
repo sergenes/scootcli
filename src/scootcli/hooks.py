@@ -212,7 +212,21 @@ class Hooks:
     @staticmethod
     def _interpret(event: str, data: dict) -> Decision:
         reason = str(data.get("reason") or "")
-        perm = str(data.get("permissionDecision") or "").lower()
+        # Claude Code nests a hook's decision under "hookSpecificOutput" (with the reason as
+        # "permissionDecisionReason" and extra context as "additionalContext"); scoot's own flat
+        # shape puts the same keys at the top level. Read both, nested first.
+        hso = data.get("hookSpecificOutput")
+        if isinstance(hso, dict):
+            if not reason:
+                reason = str(hso.get("permissionDecisionReason") or hso.get("reason") or "")
+            perm_src = hso.get("permissionDecision")
+            context_src = hso.get("additionalContext")
+        else:
+            perm_src = data.get("permissionDecision")
+            context_src = None
+        perm = str(perm_src or "").lower()
+        if perm == "approve":
+            perm = "allow"  # Claude Code's older synonym
         if event == "PreToolUse" and perm in ("allow", "deny", "ask"):
             return Decision(action=perm, reason=reason)
         raw = str(data.get("decision") or "").lower()
@@ -220,7 +234,7 @@ class Hooks:
             return Decision(action="deny" if event == "PreToolUse" else "block", reason=reason)
         if raw == "approve" and event == "PreToolUse":
             return Decision(action="allow", reason=reason)
-        context = data.get("additionalContext") or data.get("context") or ""
+        context = context_src or data.get("additionalContext") or data.get("context") or ""
         return Decision(context=str(context) if context else "")
 
     def _record(self, event: str, command: str, outcome: str, detail: str, started: float) -> None:

@@ -240,3 +240,22 @@ def test_tool_kind_mapping():
     assert H.tool_kind(tools.get("edit_file")) == "write"
     assert H.tool_kind(tools.get("run_shell")) == "shell"
     assert H.tool_kind(tools.get("update_plan")) == "meta"
+
+
+def test_interpret_accepts_claude_codes_nested_output():
+    from scootcli.hooks import Hooks
+
+    i = Hooks._interpret
+    assert i("PreToolUse", {"hookSpecificOutput": {"permissionDecision": "allow"}}).action == "allow"
+    d = i("PreToolUse", {"hookSpecificOutput": {"permissionDecision": "deny", "permissionDecisionReason": "no"}})
+    assert d.action == "deny" and d.reason == "no"
+    assert i("PreToolUse", {"hookSpecificOutput": {"permissionDecision": "approve"}}).action == "allow"
+    assert i("PreToolUse", {"hookSpecificOutput": {"permissionDecision": "ask"}}).action == "ask"
+    # extra context nested the way Claude Code emits it for UserPromptSubmit / PostToolUse
+    c = i("UserPromptSubmit", {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": "branch: main"}})
+    assert c.action == "" and c.context == "branch: main"
+    # the pre-existing flat shapes still work
+    assert i("PreToolUse", {"permissionDecision": "deny", "reason": "flat"}).reason == "flat"
+    assert i("Stop", {"decision": "block", "reason": "more"}).action == "block"
+    assert i("PreToolUse", {"decision": "approve"}).action == "allow"
+    assert i("PreToolUse", {"additionalContext": "x"}).context == "x"

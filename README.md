@@ -234,7 +234,7 @@ Put them in `~/.config/scoot/hooks.json` or `.scoot/hooks.json` in the project:
 }
 ```
 
-A `PreToolUse` hook can answer `{"permissionDecision": "deny", "reason": "..."}` to skip a tool (the model is told why), `allow` to skip the approval prompt, or `ask` to force one even in `yolo`; exit code 2 denies with stderr as the reason.
+A `PreToolUse` hook can answer `{"permissionDecision": "deny", "reason": "..."}` to skip a tool (the model is told why), `allow` to skip the approval prompt, or `ask` to force one even in `yolo`; exit code 2 denies with stderr as the reason. Claude Code's nested `hookSpecificOutput` answer is accepted as is, so a hook written for Claude Code works without edits.
 A `Stop` hook that answers `{"decision": "block", "reason": "run the tests first"}` sends the agent back to work with that instruction, at most three times per turn.
 `/hooks` shows what is configured and what ran; `SCOOT_HOOKS=0` turns hooks off.
 
