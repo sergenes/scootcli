@@ -153,19 +153,21 @@ class StatusBar:
         self._installed = True
 
     def render(self, text: Optional[str] = None) -> None:
-        """Redraw the bar (recomputes size so it self-heals after a resize)."""
+        """Redraw the bar and re-establish the scroll region (so it self-heals after a resize).
+
+        The region is always re-sent: terminals reset it on a resize (tmux on any height change,
+        xterm on any change), and the few bytes cost nothing. DECSC/DECRC keep the cursor where it was.
+        """
         if not self.enabled:
             return
         if text is not None:
             self._text = text
         rows = self._term_rows()
-        reserved = self._reserved()
+        self._rows = rows
+        self._reserved_cache = self._reserved()
         sys.stdout.write("\0337")  # save cursor + attrs (DECSC)
-        if not self._installed or rows != self._rows or reserved != self._reserved_cache:
-            self._rows = rows
-            self._reserved_cache = reserved
-            sys.stdout.write(f"\033[1;{self._region_bottom(rows)}r")  # (re)establish scroll region
-            self._installed = True
+        sys.stdout.write(f"\033[1;{self._region_bottom(rows)}r")  # (re)establish scroll region
+        self._installed = True
         self._draw_frame(rows)
         sys.stdout.write("\0338")  # restore cursor (DECRC)
         sys.stdout.flush()

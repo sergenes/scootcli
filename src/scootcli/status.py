@@ -23,6 +23,13 @@ def _fmt_elapsed(seconds: int) -> str:
     return f"{seconds // 60}m{seconds % 60:02d}s"
 
 
+# Every write to the terminal from the spinner thread takes this lock, and so does the REPL's resize
+# repaint (which runs on the main thread while the spinner animates): a bar redraw must never land in
+# the middle of a spinner frame, or the other way round. Re-entrant, because the repaint can run from
+# a signal handler while the main thread itself holds it.
+paint_lock = threading.RLock()
+
+
 class Status:
     """A threaded spinner with an updatable message and a persistent step hint."""
 
@@ -62,8 +69,9 @@ class Status:
             if elapsed >= 30:
                 hint = "still working · ctrl+c to force" + (f" — {hint}" if hint else "")
             tail = color(f" · {hint}", "gray") if hint else ""
-            sys.stdout.write(f"{_CLEAR_LINE}  {frame} {message}{timer}{tail}")
-            sys.stdout.flush()
+            with paint_lock:
+                sys.stdout.write(f"{_CLEAR_LINE}  {frame} {message}{timer}{tail}")
+                sys.stdout.flush()
             i += 1
             time.sleep(0.08)
 
@@ -73,12 +81,14 @@ class Status:
             self._thread.join(timeout=0.3)
             self._thread = None
         if self.enabled:
-            sys.stdout.write(_CLEAR_LINE)
-            sys.stdout.flush()
+            with paint_lock:
+                sys.stdout.write(_CLEAR_LINE)
+                sys.stdout.flush()
 
     def line(self, text: str) -> None:
         """Print a permanent line, clearing the spinner first so it doesn't get mangled."""
-        if self.enabled:
-            sys.stdout.write(_CLEAR_LINE)
-        print(text)
+        with paint_lock:
+            if self.enabled:
+                sys.stdout.write(_CLEAR_LINE)
+            print(text)
 

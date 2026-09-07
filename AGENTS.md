@@ -19,7 +19,7 @@ Models are addressed as `provider/model`.
   - `approvals.py`: approval prompts, modes, shell denylist.
   - `logo.py`: the mascot (banner, `/help`, status-bar face, labels).
   - `keys.py` / `status.py` / `activity.py` / `rendering.py`: raw-mode ESC handling, spinner, ANSI, diffs, redaction.
-  - `lineeditor.py` / `panel.py`: fixed-bottom input dock and the status bar.
+  - `lineeditor.py` / `panel.py` / `resize.py`: fixed-bottom input dock, the status bar, and SIGWINCH handling (wake-up pipe, cursor reports, re-anchor geometry).
   - `images.py` / `vision.py`: image path detection, encoding, and description through the provider layer.
   - `sessions.py` / `context.py` / `project.py` / `worktree.py` / `workspace.py` / `clipboard.py`: persistence, compaction, `/init`, worktrees, repo map, clipboard.
   - `commands/`: slash commands (drop-in registry).
