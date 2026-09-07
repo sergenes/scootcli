@@ -56,8 +56,8 @@ def test_start_diff_merge_roundtrip():
         assert "new.txt" in d
         assert wt.has_changes(w)
         # Merge back into the base branch.
-        msg = wt.finish(w, "merge")
-        assert "merged" in msg
+        res = wt.finish(w, "merge")
+        assert res.ok and "merged" in res.message
         assert (repo / "new.txt").read_text() == "hello from worktree\n"
         assert not w.path.exists()  # worktree cleaned up
     finally:
@@ -72,8 +72,8 @@ def test_discard_leaves_base_untouched():
     try:
         w = wt.start(repo)
         (w.path / "temp.txt").write_text("scratch\n")
-        msg = wt.finish(w, "discard")
-        assert "discarded" in msg
+        res = wt.finish(w, "discard")
+        assert res.ok and "discarded" in res.message
         assert not (repo / "temp.txt").exists()
     finally:
         shutil.rmtree(repo, ignore_errors=True)
@@ -90,3 +90,108 @@ if __name__ == "__main__":
             passed += 1
     print(f"\n{passed} passed")
 
+
+
+# ── 0.9.0: a worktree never loses work (review R05, R06) ─────────────────────────
+def _failing_commit_hook(repo: Path) -> None:
+    hook = repo / ".git" / "hooks" / "pre-commit"
+    hook.write_text("#!/bin/sh\necho 'rejected by hook' >&2\nexit 1\n")
+    hook.chmod(0o755)
+
+
+def test_failed_commit_keeps_worktree_and_files():
+    if shutil.which("git") is None:
+        return
+    repo = _make_repo()
+    try:
+        w = wt.start(repo)
+        (w.path / "work.txt").write_text("hours of work\n")
+        _failing_commit_hook(repo)
+        for action in ("keep", "merge"):
+            res = wt.finish(w, action)
+            assert not res.ok and res.retained, res
+            assert "commit failed" in res.message and "rejected by hook" in res.message
+            assert (w.path / "work.txt").read_text() == "hours of work\n"
+            assert w.path.exists()
+    finally:
+        shutil.rmtree(repo, ignore_errors=True)
+
+
+def test_committed_branch_still_merges_with_clean_index():
+    if shutil.which("git") is None:
+        return
+    repo = _make_repo()
+    try:
+        w = wt.start(repo)
+        (w.path / "done.txt").write_text("committed by the agent\n")
+        _git(w.path, "add", "-A")
+        _git(w.path, "commit", "-qm", "agent commit")
+        assert not wt.has_changes(w) and wt.has_commits(w)
+        res = wt.finish(w, "merge")
+        assert res.ok and "merged" in res.message, res
+        assert (repo / "done.txt").read_text() == "committed by the agent\n"
+    finally:
+        shutil.rmtree(repo, ignore_errors=True)
+
+
+def test_keep_with_nothing_removes_the_empty_branch_and_merge_conflict_retains():
+    if shutil.which("git") is None:
+        return
+    repo = _make_repo()
+    try:
+        w = wt.start(repo)
+        res = wt.finish(w, "keep")
+        assert res.ok and not res.retained and "nothing to keep" in res.message
+        assert not w.path.exists()
+        branches = subprocess.run(["git", "-C", str(repo), "branch", "--list", w.branch],
+                                  capture_output=True, text=True).stdout
+        assert branches.strip() == ""
+        # A conflicting merge keeps the worktree and says so.
+        w = wt.start(repo)
+        (w.path / "seed.txt").write_text("worktree version\n")
+        (repo / "seed.txt").write_text("main version\n")
+        _git(repo, "commit", "-qam", "diverge")
+        res = wt.finish(w, "merge")
+        assert not res.ok and res.retained and "merge failed" in res.message
+        assert (w.path / "seed.txt").exists()
+        _git(repo, "merge", "--abort")
+    finally:
+        shutil.rmtree(repo, ignore_errors=True)
+
+
+def test_entering_a_worktree_moves_scope_and_leaving_after_failure_does_not():
+    """R06: the session's scope follows the root; R05: a retained worktree keeps the session in it."""
+    import io
+    from contextlib import redirect_stdout
+
+    from scootcli.commands import worktree as cmd
+    from scootcli.config import Config
+    from scootcli.hooks import Hooks
+    from scootcli.repl import ReplSession
+
+    if shutil.which("git") is None:
+        return
+    repo = _make_repo()
+    try:
+        session = ReplSession(Config().override(root=str(repo)), None)
+        session.hooks = Hooks(repo)
+        session.scope.grant(repo.parent / "elsewhere.txt")
+        with redirect_stdout(io.StringIO()):
+            cmd._start(session)
+        w = session.worktree
+        assert w is not None
+        assert session.config.root == w.path.resolve()
+        assert session.scope.root == w.path.resolve()
+        assert not session.scope.allows(repo / "seed.txt"), "the original checkout stayed in scope"
+        assert session.scope.granted == [], "grants for the old root were carried over"
+        assert session.hooks.root == w.path
+        (w.path / "work.txt").write_text("keep me\n")
+        _failing_commit_hook(repo)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            cmd._finish(session, "keep")
+        assert "commit failed" in out.getvalue()
+        assert session.worktree is w and session.config.root == w.path.resolve()
+        assert (w.path / "work.txt").exists()
+    finally:
+        shutil.rmtree(repo, ignore_errors=True)

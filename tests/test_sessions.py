@@ -177,3 +177,36 @@ def test_resume_keeps_an_explicit_model_over_the_saved_one(monkeypatch, tmp_path
     s3 = ReplSession(Config().override(root="/tmp"), provider=None)
     s3.apply_record(rec)
     assert s3.model == "auto" and s3.active_model == "openai/gpt-5.3-codex"
+
+
+# ── 0.9.0: resume never raises privileges; history stays valid (review R04, R11) ─
+def test_resume_keeps_this_runs_approval_mode():
+    from scootcli.config import Config
+    from scootcli.repl import ReplSession
+    from scootcli.sessions import SessionRecord
+
+    session = ReplSession(Config().override(approval="always"), None)
+    session.apply_record(SessionRecord(id="20260907-000000-ab12", root=".", created=1.0, updated=2.0,
+                                       model="auto", active_model="gpt-4o", approval_mode="yolo",
+                                       messages=[{"role": "user", "content": "hi"}]))
+    assert session.approval_mode == "always"
+    assert session.messages == [{"role": "user", "content": "hi"}]
+
+
+def test_complete_tool_results_fills_missing_results_in_place():
+    from scootcli.sessions import complete_tool_results
+
+    call = lambda i: {"id": i, "type": "function", "function": {"name": "list_dir", "arguments": "{}"}}
+    messages = [
+        {"role": "user", "content": "go"},
+        {"role": "assistant", "content": "", "tool_calls": [call("c1"), call("c2")]},
+        {"role": "tool", "tool_call_id": "c1", "content": "ok"},
+        {"role": "user", "content": "and?"},
+        {"role": "assistant", "content": "", "tool_calls": [call("c3")]},
+    ]
+    fixed = complete_tool_results(messages)
+    roles = [(m["role"], m.get("tool_call_id")) for m in fixed]
+    assert roles == [("user", None), ("assistant", None), ("tool", "c1"), ("tool", "c2"),
+                     ("user", None), ("assistant", None), ("tool", "c3")]
+    assert "interrupted" in fixed[3]["content"]
+    assert complete_tool_results(fixed) == fixed  # already complete: unchanged

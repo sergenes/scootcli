@@ -170,3 +170,56 @@ def test_failed_tool_output_reaches_the_model():
         assert payload.startswith("ERROR: exit 1")
         assert "useful diagnostic" in payload
         assert payload.count("exit 1") == 1  # the exit line is not repeated
+
+
+def test_aborting_a_batch_answers_every_tool_call():
+    """R11: an aborted batch leaves no tool call without a result."""
+    with tempfile.TemporaryDirectory() as d:
+        agent, session = _agent(Path(d), [ChatResult(
+            content="", model="m",
+            tool_calls=[{"id": "c1", "type": "function", "function": {"name": "write_file", "arguments": json.dumps({"path": "a", "content": "1"})}},
+                        {"id": "c2", "type": "function", "function": {"name": "write_file", "arguments": json.dumps({"path": "b", "content": "2"})}}],
+        )])
+        outcome = agent.run_turn(session, HeadlessUI(Decision.ABORT))
+        assert outcome.status == "aborted"
+        answered = [m["tool_call_id"] for m in session.messages if m.get("role") == "tool"]
+        assert answered == ["c1", "c2"]
+        assert not (Path(d) / "a").exists() and not (Path(d) / "b").exists()
+
+
+def test_malformed_arguments_do_not_run_the_tool():
+    with tempfile.TemporaryDirectory() as d:
+        agent, session = _agent(Path(d), [
+            ChatResult(content="", model="m", tool_calls=[{"id": "c1", "type": "function", "function": {
+                "name": "write_file", "arguments": '{"path": "cut.txt", "content": "half'}}]),
+            ChatResult(content="retried.\nDONE", model="m"),
+        ])
+        outcome = agent.run_turn(session, HeadlessUI(Decision.APPROVE))
+        assert outcome.status == "done"
+        assert not (Path(d) / "cut.txt").exists()
+        tool_msgs = [m["content"] for m in session.messages if m.get("role") == "tool"]
+        assert tool_msgs and "not a JSON object" in tool_msgs[0]
+
+
+def test_length_finish_is_incomplete_not_done():
+    """R12: a reply cut at the output limit is reported as incomplete, with the partial text."""
+    with tempfile.TemporaryDirectory() as d:
+        agent, session = _agent(Path(d), [ChatResult(content="first half of", model="m", finish_reason="length")])
+        outcome = agent.run_turn(session, HeadlessUI(Decision.APPROVE))
+        assert outcome.status == "incomplete"
+        assert outcome.content == "first half of"
+        assert "output limit" in outcome.error
+
+
+def test_cut_off_tool_calls_never_run_and_retries_are_bounded():
+    with tempfile.TemporaryDirectory() as d:
+        cut = ChatResult(content="", model="m", finish_reason="length", tool_calls=[
+            {"id": "c1", "type": "function", "function": {"name": "write_file",
+                                                          "arguments": json.dumps({"path": "x.txt", "content": "looks complete"})}}])
+        agent, session = _agent(Path(d), [cut, cut, cut])
+        outcome = agent.run_turn(session, HeadlessUI(Decision.APPROVE))
+        assert outcome.status == "incomplete"
+        assert not (Path(d) / "x.txt").exists()
+        assert outcome.steps == 2
+        tool_msgs = [m for m in session.messages if m.get("role") == "tool"]
+        assert len(tool_msgs) == 2 and all("cut off" in m["content"] for m in tool_msgs)

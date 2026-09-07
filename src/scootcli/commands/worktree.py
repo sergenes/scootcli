@@ -25,7 +25,7 @@ def _start(session):
         eprint(color(f"could not create worktree: {exc}", "red"))
         return
     session.worktree = w
-    session.config = session.config.override(root=str(w.path))
+    session.switch_root(w.path)
     print(color(f"⚙ isolated in worktree {w.branch}", "cyan"))
     print(color(f"  root → {w.path}", "gray"))
     print(color("  work freely (try /yolo); then /worktree merge|keep|discard", "gray"))
@@ -36,10 +36,15 @@ def _finish(session, action):
     if w is None:
         print(color("not in a worktree.", "yellow"))
         return
-    msg = wt.finish(w, action)
-    session.config = session.config.override(root=str(w.original_root))
+    result = wt.finish(w, action)
+    print(color(result.message, "gray" if result.ok else "yellow"))
+    if result.retained:
+        # The work is still in the worktree; the session stays there so nothing is lost.
+        print(color(f"  still in worktree {w.branch} at {w.path}", "gray"))
+        print(color(f"  fix it and run /worktree {action} again, or /worktree discard to drop it", "gray"))
+        return
+    session.switch_root(w.original_root)
     session.worktree = None
-    print(color(f"{msg}", "gray"))
     print(color(f"  root → {w.original_root}", "gray"))
 
 
