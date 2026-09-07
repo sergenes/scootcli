@@ -51,6 +51,19 @@ The dock repaints on `SIGWINCH`: the editor wakes at once, locates the transcrip
 
 `/model X` and `--model X` are remembered for the workspace; `/model X everywhere` sets the fallback for every folder, `/model forget` drops the folder's choice, `/status` names the layer the model came from.
 
+## 0.9.0: nothing gets lost (released 2026-09-07)
+
+The first release driven by an outside review: worktree finish that never removes uncommitted work, atomic file writes with argument validation, failed-command output reaching the model, resume that keeps this run's approval mode, complete tool-result history after abort or interrupt, cut-off replies reported as incomplete, process-group cancellation for shell and hooks, socket shutdown on ESC, prompt SSE delivery, and a zipapp that exits with the real status.
+
+## 0.10.0: trust boundaries (next)
+
+The remaining high-priority findings of the same review, the ones that change behaviour and documentation:
+
+- Project `.env` gets a narrow allowlist (R02): endpoint URLs, approval, scope, hooks, and config or state directories come only from flags or the user's own configuration.
+- Project hooks require a one-time trust decision per repository, denies win over allows across project and global hooks, and provider key variables are stripped from hook environments (R01).
+- The README security section says what is true: file tools are scoped, shell commands run with the user's normal access, the denylist is an accident guard (R03). The `yolo` default stays; `rm -r -f` and `git -C x push --force` join the denylist's normalisation.
+- The stdlib search fallback and the workspace map skip symlinks and hidden or ignored files (R07); session redaction reaches tool arguments and replay items (R13); session ids are validated as basenames and malformed records are skipped on listing (R17).
+
 ## Later, as configuration rows
 
 - xAI (Grok), Groq, OpenRouter, LM Studio, vLLM: each is a `ProviderSpec` once its Responses or Chat Completions support is checked.

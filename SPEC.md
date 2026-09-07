@@ -33,6 +33,7 @@ An invalid rules file is reported by `/route` and the built-in heuristic applies
 2.8b All `tool` results of one step are sent to Anthropic in a single user message; a `stop_reason` of `refusal` becomes an error with a hint rather than an empty answer.
 2.9 Output items a provider returns (for example encrypted reasoning) are stored on the assistant message, tagged with the producing model, and replayed verbatim only when the same model is called again; another model receives a rebuilt message without them.
 2.10 A model call that fails with a transient error (network, timeout, 429, 5xx) is retried up to three times with capped, jittered backoff, never after streamed text has reached the screen; a 401 fails immediately with a hint naming the key variable and `scoot auth`.
+2.10a A stream that ends with no events, or carries events that cannot be parsed, is an error; a stream that closes before the provider's terminal event (no `finish_reason` and no `[DONE]`, no `response.completed`, no `message_delta`) yields an incomplete reply (§5.11), never a completed one.
 2.11 Usage is normalized to `prompt_tokens`, `completion_tokens`, and `total_tokens` whatever the provider calls them.
 
 ## 3. Authentication
@@ -60,6 +61,8 @@ Readiness is checked for the provider of the active model, at start and again af
 5.1 One user turn runs up to `SCOOT_MAX_STEPS` model calls (default 50).
 Each call receives the system prompt, the conversation, and the schemas of all registered tools.
 5.2 If the reply carries tool calls, each is approved (see §7) and executed, its result appended as a `tool` message, and the loop continues; a reply without tool calls ends the turn.
+Every tool call in a reply gets a `tool` message, also when the batch is aborted, interrupted, or cut off (the message says the call was not executed); a saved session missing one is completed on load.
+Arguments that are not a JSON object never run a tool; the model is told to call it again.
 5.3 A trailing `DONE` sentinel in the final answer is stripped before display.
 5.4 On reaching the step limit the REPL asks whether to continue for another batch; one-shot mode stops.
 5.5 A context-length error triggers one automatic compaction (§9) and a retry; a model-unavailable error switches to another model once and retries.
@@ -68,6 +71,8 @@ Each call receives the system prompt, the conversation, and the schemas of all r
 5.8 An `AGENTS.md` at the workspace root is injected into the system prompt when present; `/init` generates one.
 5.9 Pressing ESC during a turn cancels the in-flight request or tool at once, prints an interruption notice, and keeps the conversation.
 5.10 Pressing Ctrl-N during a turn asks for a one-line note at the next model call (the spinner's hint says `^n note`); the note is delivered to the model as a user message before that call, the same path headless mode's `note` uses.
+5.11 A reply the model could not finish, because it reached its output limit or the stream closed early, ends the turn as `incomplete`: the partial text is shown with a warning, one-shot mode exits 1, headless mode reports `status: incomplete`.
+Tool calls in such a reply are not executed; the model is asked once to retry, then the turn ends as `incomplete`.
 
 ## 6. Tools
 
@@ -78,7 +83,10 @@ A path outside it is not rejected: before the tool runs, the user is asked once,
 A declined access is fed back to the model as `user declined access outside the workspace: <path>`.
 The system prompt tells the model that the workspace is its home, not a wall, so it uses absolute paths elsewhere instead of refusing or handing the user a script.
 6.3 `search` groups matches per file with bounded output; `edit_file` applies an exact replacement and reports a diff; `write_file` reports the diff against any existing content.
-6.4 `run_shell` executes with a timeout and captures bounded output; its child runs with stdin closed and pagers and interactive prompts disabled (`GIT_PAGER=cat`, `GIT_TERMINAL_PROMPT=0`, and similar), so a command that would wait for input fails fast instead of hanging; commands matching the denylist (recursive deletes of root paths, force pushes, piping downloads to a shell, disk formatting, and similar) require confirmation in every approval mode.
+`write_file` requires `content`: an explicit empty string writes an empty file, a missing one is an error, never an emptied file.
+`edit_file` refuses a file that is not UTF-8 text rather than replace bytes it cannot represent, matches on LF-normalised text so a CRLF file can be quoted with plain newlines, and writes the file's own line endings back.
+Both write through a temporary sibling file and an atomic rename that preserves the file's mode, so a failed or interrupted write leaves the old file intact; an edit is refused when the file changed after it was read.
+6.4 `run_shell` executes with a timeout and captures bounded output; its child runs in its own process group, which ESC and the timeout terminate as a whole with bounded waits, with stdin closed and pagers and interactive prompts disabled (`GIT_PAGER=cat`, `GIT_TERMINAL_PROMPT=0`, and similar), so a command that would wait for input fails fast instead of hanging; commands matching the denylist (recursive deletes of root paths, force pushes, piping downloads to a shell, disk formatting, and similar) require confirmation in every approval mode.
 6.4a `open_editor` opens a workspace file in an external editor, `idea -e` (IntelliJ LightEdit) by default or VS Code, as a detached process; the editor comes from the call, else `SCOOT_EDITOR`; it is approval-gated like `run_shell` and fails with an install hint when the launcher is missing.
 6.5 `update_plan` records a step checklist that the UI renders and the status bar counts; it never prompts.
 6.6 A tool is a drop-in module in `tools/` that calls `register`; the registry feeds both the API tool schemas and the tool list in the system prompt.
@@ -91,7 +99,9 @@ The default is `yolo`.
 7.3 Denylisted shell commands are confirmed regardless of mode or trust.
 7.4 `--yes` / `-y` runs a one-shot turn with everything auto-approved.
 7.4a The scope question (6.2) is asked in every approval mode, including `yolo`, unless the scope is `anywhere`; hooks receive a `Notification` of kind `scope` when it is asked.
-7.5 `/worktree start` creates a throwaway git worktree on a `scoot/<timestamp>` branch and points the tools there; `/worktree merge` brings the result back, `/worktree discard` drops it.
+7.5 `/worktree start` creates a throwaway git worktree on a `scoot/<timestamp>` branch and moves the root, the file scope, and the hooks there, so the original checkout is outside the scope; `/worktree merge` brings the result back, `/worktree keep` leaves the branch for review, `/worktree discard` drops it.
+Work the agent already committed on the branch is merged like uncommitted work.
+A commit or merge that fails keeps the worktree, the branch, and the session in it and says why; only `discard` removes work by force.
 
 ## 8. The REPL
 
@@ -110,6 +120,7 @@ Each is a drop-in module in `commands/`.
 9.1 When the context estimate passes `SCOOT_COMPACT_AT` (default 100000 tokens), or on `/compact`, the conversation is summarized by the model and replaced by the summary.
 9.2 Every turn auto-saves the session to `~/.local/state/scoot/sessions/<id>.json` (mode `0600`), keyed by workspace root, with secrets redacted; the 20 most recent sessions are kept.
 9.3 `scoot --continue` resumes the latest session for the directory, `scoot --resume <id>` a specific one; `SCOOT_RESUME` is `auto` (reload the latest on launch, the default), `hint` (show it in the banner), or `off`.
+Resuming restores the conversation and, when this run set no model explicitly, the model; it never restores the approval mode, so `--approval always` stays in force over a session that once ran in `yolo`.
 9.4 `/sessions` lists, `/resume [id]` loads, `/forget <id>|all` deletes.
 
 ## 10. Images
@@ -127,7 +138,7 @@ Each is a drop-in module in `commands/`.
 
 ## 12. Output and exit codes
 
-12.1 One-shot mode prints the final answer and exits 0 on success, 1 on error; `--json` prints `{status, model, steps, content, error, usage, cost}` (`cost` is null when a model's price is unknown).
+12.1 One-shot mode prints the final answer and exits 0 on success, 1 on error or on an incomplete reply (the partial text is still printed); `--json` prints `{status, model, steps, content, error, usage, cost}` (`cost` is null when a model's price is unknown).
 12.2 `--verbose` adds the model, step count, and token usage on stderr.
 12.3 Ctrl-C quits with exit code 130.
 
@@ -135,6 +146,7 @@ Each is a drop-in module in `commands/`.
 
 13.1 Hooks are shell commands run at lifecycle events with a JSON payload on stdin: `SessionStart` (`source`: startup, resume, reset), `UserPromptSubmit` (`prompt`), `PreToolUse` (`tool_name`, `tool_input`, `tool_kind`), `PostToolUse` (plus `tool_response`: `ok`, `summary`, `error`, bounded `content`), `Stop` (`last_assistant_message`, `steps`, `usage`), `Notification` (`kind`: approval, max_steps, error; `message`), `SessionEnd` (`reason`).
 Common fields: `session_id`, `cwd`, `hook_event_name`, `model`, `transcript_path`.
+13.1a Hooks run through the same subprocess runner as the tools: their own process group, a bounded timeout, and cancellation by ESC.
 13.2 Configuration is `hooks.json` in the config directory (global) merged with `.scoot/hooks.json` under the workspace (project first), in the shape `{"Event": [{"matcher": "regex", "hooks": [{"type": "command", "command": "...", "timeout": 60}]}]}`; a top-level `hooks` key wrapping that object is accepted.
 `matcher` applies to `tool_name` for `PreToolUse` and `PostToolUse`, and also to the tool's Claude Code alias (`run_shell` is `Bash`, `write_file` is `Write`, `edit_file` is `Edit`, `read_file` is `Read`, `search` is `Grep`, `list_dir` is `LS`, `update_plan` is `TodoWrite`), so a matcher written for Claude Code fires for scoot's tools; the payload carries the alias as `tool_alias`.
 13.3 A hook decides with its exit code or JSON on stdout: exit 0 with empty stdout is no decision; exit 0 with `{"permissionDecision": "allow" | "deny" | "ask"}` (PreToolUse) or `{"decision": "block", "reason": ...}` (UserPromptSubmit, Stop) is that decision; exit 2 blocks or denies with stderr as the reason; plain stdout text is context; any other exit or a timeout is logged and ignored.
@@ -149,7 +161,7 @@ Hooks run sequentially and the first blocking decision wins.
 
 14.1 `scoot --headless` reads one JSON object per line on stdin and writes one JSON object per line on stdout, nothing else on stdout; diagnostics go to stderr; the protocol is versioned (`ready.protocol`, currently 1) and only grows within a major version.
 14.2 Input types: `prompt` (`text`, optional `images`), `approve` (`id`, `decision` among allow, allow_tool, allow_session, deny, abort; optional `args`), `note` (`text`, delivered as a user message at the next model call), `interrupt`, `command` (`name`, `args`), `shutdown`; closing stdin is a shutdown.
-14.3 Output types: `ready`, `turn_start`, `activity`, `text_delta`, `assistant` (`final`), `tool_call`, `approval_request` (`id`, `name`, `args`, `kind`, `preview`, `options`, `timeout_s`), `scope_request` (`id`, `name`, `path`, `options` allow_once, allow_dir, allow_all, deny, abort; answered with `approve`), `tool_result`, `plan`, `turn_end` (`status` among done, interrupted, aborted, max_steps, error, blocked; `steps`, `model`, `usage`, `content`, `error`), `notice`, `command_output`, `error` (`kind` among protocol, turn, command, setup), `heartbeat` every 10 seconds, `bye`.
+14.3 Output types: `ready`, `turn_start`, `activity`, `text_delta`, `assistant` (`final`), `tool_call`, `approval_request` (`id`, `name`, `args`, `kind`, `preview`, `options`, `timeout_s`), `scope_request` (`id`, `name`, `path`, `options` allow_once, allow_dir, allow_all, deny, abort; answered with `approve`), `tool_result`, `plan`, `turn_end` (`status` among done, incomplete, interrupted, aborted, max_steps, error, blocked; `steps`, `model`, `usage`, `content`, `error`), `notice`, `command_output`, `error` (`kind` among protocol, turn, command, setup), `heartbeat` every 10 seconds, `bye`.
 14.4 Approvals follow the REPL's decision path; an unanswered request is denied after `SCOOT_APPROVAL_TIMEOUT` seconds (default 120).
 14.5 With no provider ready, headless mode emits one `error` of kind `setup` and exits 1; a bad input line is reported as a `protocol` error and skipped; a slash command's printed output is returned in `command_output`.
 14.6 Sessions, compaction, routing, tools, and hooks behave as in the REPL; the status bar, dock, and mascot are off.

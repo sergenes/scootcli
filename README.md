@@ -214,7 +214,8 @@ When a call needs approval you can approve once `[a]`, trust that tool for the s
 `/approve <mode>` sets how much runs without asking: `always` prompts for everything, `auto-read` auto-approves reads, `auto-edits` also auto-approves file edits, `yolo` runs everything.
 Catastrophic shell commands (a denylist: `rm -rf /`, `git push --force`, piping downloads into a shell, and so on) are re-confirmed in every mode.
 
-For risky autonomous runs, `/worktree start` moves the work into a throwaway git worktree; `/worktree merge` or `/worktree discard` when done.
+For risky autonomous runs, `/worktree start` moves the work into a throwaway git worktree; `/worktree merge`, `/worktree keep`, or `/worktree discard` when done.
+A commit or merge that fails keeps the worktree and your files; nothing is removed by force except by `discard`.
 
 ### Streaming, images, sessions
 
@@ -290,6 +291,7 @@ python -m pytest -q          # network-free suite
 ```
 
 Design notes live in [`DESIGN.md`](./DESIGN.md), the behaviour spec in [`SPEC.md`](SPEC.md), what is next in [`ROADMAP.md`](./ROADMAP.md), and the release history in [`CHANGELOG.md`](./CHANGELOG.md).
+Want to build a CLI agent like this yourself? [`docs/blueprint.md`](./docs/blueprint.md) is the minimal spec: the components, the turn, the tools, the permission rules, and the acceptance checks, with no dependency on scoot's code.
 New capability is a drop-in file: a tool in `tools/`, a slash command in `commands/`, a provider row or adapter in `providers/`.
 
 ## Security

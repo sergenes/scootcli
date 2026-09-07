@@ -36,7 +36,7 @@ The status bar, the input dock, and the mascot are off.
 | `scope_request` | `id`, `name`, `path`, `options` (`allow_once`, `allow_dir`, `allow_all`, `deny`, `abort`), `timeout_s`; the tool wants a path outside the workspace; answer with `approve` |
 | `tool_result` | `name`, `ok`, `summary`, `error`, `content` (bounded) |
 | `plan` | `steps` (from `update_plan`: `step`, `status`) |
-| `turn_end` | `turn`, `status` (`done` \| `interrupted` \| `aborted` \| `max_steps` \| `error` \| `blocked`), `steps`, `model`, `usage`, `cost` (USD for this turn, `null` when a model's price is unknown), `cost_session`, `content`, `error` |
+| `turn_end` | `turn`, `status` (`done` \| `incomplete` \| `interrupted` \| `aborted` \| `max_steps` \| `error` \| `blocked`), `steps`, `model`, `usage`, `cost` (USD for this turn, `null` when a model's price is unknown), `cost_session`, `content`, `error` |
 | `notice` | `message` (compaction, model fallback, step limit reached, approval timed out, note queued) |
 | `command_output` | `name`, `output` |
 | `error` | `message`, `hint`, `kind` (`protocol` \| `turn` \| `command` \| `setup`) |
@@ -49,6 +49,7 @@ The status bar, the input dock, and the mascot are off.
 - An unanswered request is denied after `SCOOT_APPROVAL_TIMEOUT` seconds (default 120) with a `notice`; the model sees a declined tool result and continues.
 - Reaching `SCOOT_MAX_STEPS` emits a `notice` and a `turn_end` with `status: max_steps`; the caller decides whether to send another prompt.
 - A `UserPromptSubmit` hook that blocks the prompt ends the turn at once with `status: blocked`.
+- A reply the model could not finish (output limit, or a stream that closed early) emits a `notice` and a `turn_end` with `status: incomplete`; `content` holds the partial text and `error` says why.
 - When no provider is ready (no key, local server down) the process emits one `error` with `kind: setup` and exits 1.
 - Output is never coloured and contains no ANSI sequences.
 
