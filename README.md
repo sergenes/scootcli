@@ -90,8 +90,9 @@ scoot --model openai/gpt-5.3-codex "..."
 scoot --model auto "..."             # pick a model per prompt from the live list (cheap for trivial, strong for edits)
 ```
 
-Inside the REPL, `/model <provider/model>` switches and is remembered for the next launch; `/model default` goes back to the provider's preferred model.
-Starting the REPL with `--model` is remembered the same way, so `scoot --model ollama/llama3.2` once and plain `scoot` afterwards keep using it; a one-shot `scoot --model X "prompt"` does not change the saved choice.
+Inside the REPL, `/model <provider/model>` switches and is remembered for the folder you are in, so each project can have its own model; `/model default` goes back to the provider's preferred model.
+Starting the REPL with `--model` is remembered the same way, so `scoot --model ollama/llama3.2` once and plain `scoot` afterwards keep using it there; a one-shot `scoot --model X "prompt"` does not change the saved choice.
+`/model X everywhere` makes `X` the model for every folder that has no choice of its own, `/model forget` drops the current folder's choice so it follows that, and `/status` says where the active model came from.
 
 ### Routing
 
@@ -146,7 +147,7 @@ The most useful settings (see [`.env.example`](./.env.example) for all of them):
 |---|---|---|
 | `OPENAI_API_KEY` | OpenAI key (or `scoot auth set openai`) | |
 | `SCOOT_PROVIDER` | default provider for bare model names | first with a key, else `ollama` |
-| `SCOOT_MODEL` | `default`, `auto`, or `provider/model` | `default` |
+| `SCOOT_MODEL` | `default`, `auto`, or `provider/model`; overrides the saved per-folder and global choices | `default` |
 | `SCOOT_EFFORT` | reasoning effort | `medium` |
 | `SCOOT_APPROVAL` | `always` · `auto-read` · `auto-edits` · `yolo` | `yolo` |
 | `SCOOT_MAX_STEPS` | tool-call steps per turn before asking to continue | `50` |

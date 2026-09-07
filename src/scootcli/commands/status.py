@@ -7,6 +7,16 @@ from . import register
 from .base import SlashCommand
 
 
+_ORIGINS = {"flag": "--model", "env": "SCOOT_MODEL", "folder": "saved for this folder",
+            "everywhere": "saved for every folder", "default": "the default"}
+
+
+def _model_origin(session) -> str:
+    """``"  (from --model)"`` and the like: which layer chose the model this run started with."""
+    src = getattr(getattr(session, "config", None), "model_source", "")
+    return f"  (from {_ORIGINS[src]})" if src in _ORIGINS else ""
+
+
 def _run(session, args: str):
     cfg = session.config
     try:
@@ -20,7 +30,8 @@ def _run(session, args: str):
         provider_row = getattr(cfg, "provider", "") or "?"
     rows = [
         ("provider", provider_row),
-        ("model", session.active_model + ("  (auto)" if session.model.lower() == "auto" else "")),
+        ("model", session.active_model + ("  (auto)" if session.model.lower() == "auto" else "")
+         + _model_origin(session)),
         ("effort", getattr(cfg, "effort", "medium")),
         ("env files", ", ".join(getattr(cfg, "env_files", ()) or ()) or "none"),
         ("update", (f"{session.update_available} available: pipx upgrade scootcli"
