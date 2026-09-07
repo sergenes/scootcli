@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 from . import tools
-from .approvals import Approval, Decision, needs_prompt
+from .approvals import Approval, Decision, denylisted_reason, needs_prompt
 from .config import Config
 from .errors import ScootError, ContextLengthError, Interrupted, ModelUnavailableError
 from .prompts import build_agent_system_prompt
@@ -471,8 +471,9 @@ class Agent:
                 continue
             # Approval policy: auto-approve when the mode/trust allows it, else prompt.
             must_prompt = needs_prompt(mode, tool, args, trusted)
-            if hook_action == "allow":
-                must_prompt = None
+            if hook_action == "allow" and not (tool.name == "run_shell"
+                                               and denylisted_reason(args.get("command", ""))):
+                must_prompt = None  # a hook may waive scoot's prompt, never the denylist confirmation
             elif hook_action == "ask":
                 must_prompt = hook_reason or "hook asked for confirmation"
             if must_prompt is None:

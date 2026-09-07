@@ -612,8 +612,10 @@ class Repl:
                 print(color(line, "yellow"))
         if self.session.resumed:
             self._replay_transcript()
-        from .hooks import session_event
+        from .hooks import session_event, startup_notices
 
+        for note in startup_notices(self.session):
+            print(color(f"⚠ {note}", "yellow"))
         session_event(self.session, "SessionStart", source="resume" if self.session.resumed else "startup")
         self._start_update_check()
         if self.resize is not None:

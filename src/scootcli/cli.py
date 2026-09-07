@@ -161,9 +161,11 @@ def _run_once(config: Config, pool: ProviderPool, prompt: str, as_json: bool, re
     session = ReplSession(config, pool)
     if resume is not None:
         session.apply_record(resume)
-    from .hooks import Hooks, session_event, submit_prompt
+    from .hooks import Hooks, session_event, startup_notices, submit_prompt
 
     session.hooks = Hooks(config.root)
+    for note in startup_notices(session):
+        eprint(color(f"⚠ {note}", "yellow"))
     session_event(session, "SessionStart", source="resume" if resume is not None else "startup")
     submitted = submit_prompt(session, prompt)
     if submitted is None:
