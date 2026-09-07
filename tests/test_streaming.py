@@ -249,3 +249,56 @@ if __name__ == "__main__":
             passed += 1
     print(f"\n{passed} passed")
 
+
+
+# ── 0.9.0: an incomplete stream is never a completed answer (review R12) ─────────
+def test_empty_200_stream_is_an_error_not_an_empty_answer():
+    from scootcli.errors import ApiError
+
+    c = _client(["HTTP_STATUS:200"])
+    try:
+        c.chat_stream([{"role": "user", "content": "hi"}], model="m", on_delta=lambda t: None)
+        assert False, "expected ApiError"
+    except ApiError as exc:
+        assert "empty stream" in str(exc)
+
+
+def test_chat_stream_that_breaks_off_is_incomplete():
+    # Content arrived, then the connection closed: no finish_reason, no [DONE].
+    c = _client([_sse({"content": "Hel"}), _sse({"content": "lo"}), "HTTP_STATUS:200"])
+    result = c.chat_stream([{"role": "user", "content": "hi"}], model="m", on_delta=lambda t: None)
+    assert result.content == "Hello" and result.finish_reason == "incomplete"
+    # [DONE] without a finish_reason (some compatible servers) still counts as complete.
+    c = _client([_sse({"content": "Hello"}), "data: [DONE]", "HTTP_STATUS:200"])
+    assert c.chat_stream([{"role": "user", "content": "hi"}], model="m", on_delta=lambda t: None).finish_reason == ""
+
+
+def test_malformed_stream_event_is_reported():
+    from scootcli.errors import ApiError
+
+    c = _client([_sse({"content": "Hel"}), 'data: {"choices": [{"delta": {"content": "lo', "data: [DONE]", "HTTP_STATUS:200"])
+    try:
+        c.chat_stream([{"role": "user", "content": "hi"}], model="m", on_delta=lambda t: None)
+        assert False, "expected ApiError"
+    except ApiError as exc:
+        assert "unreadable" in str(exc)
+
+
+def test_responses_stream_without_terminal_event_is_incomplete(monkeypatch):
+    lines = [
+        _ev({"type": "response.output_text.delta", "delta": "Hel"}),
+        _ev({"type": "response.output_item.done", "item": {"type": "message", "id": "m1", "role": "assistant",
+             "content": [{"type": "output_text", "text": "Hel"}]}}),
+        "HTTP_STATUS:200",
+    ]
+    p = _responses_provider(lines, monkeypatch)
+    result = p.chat_stream([{"role": "user", "content": "hi"}], model="gpt-5.3-codex", on_delta=lambda t: None)
+    assert result.content == "Hel" and result.finish_reason == "incomplete"
+
+
+def test_responses_cut_off_tool_call_is_length_not_tool_calls():
+    from scootcli.providers.openai_responses import build_result
+
+    items = [{"type": "function_call", "id": "fc1", "call_id": "c1", "name": "write_file", "arguments": '{"path": "a'}]
+    assert build_result(items, "m", None, "incomplete").finish_reason == "length"
+    assert build_result(items, "m", None, "completed").finish_reason == "tool_calls"

@@ -26,6 +26,7 @@ from .base import (
     ChatRequest,
     ChatResult,
     decode_json,
+    STREAM_ENDED,
     finish_stream,
     iter_sse_json,
     normalize_usage,
@@ -149,10 +150,12 @@ def build_result(items: List[dict], model: str, usage: Optional[dict], status: s
     texts = [_text_of(it) for it in items if it.get("type") == "message"]
     tool_calls = [_tool_call_of(it) for it in items if it.get("type") == "function_call"]
     content = streamed_text or "".join(texts)
-    if tool_calls:
+    if status == "incomplete":
+        finish = "length"  # even with tool calls: their arguments may be cut short
+    elif status == STREAM_ENDED:
+        finish = "incomplete"
+    elif tool_calls:
         finish = "tool_calls"
-    elif status == "incomplete":
-        finish = "length"
     else:
         finish = "stop"
     message: dict = {"role": "assistant", "content": content}
@@ -245,4 +248,4 @@ class OpenAIResponsesProvider(BaseProvider):
             raise_for_status(400, json.dumps({"error": state.error}), self.name)
             raise ApiError(str(state.error))
         return build_result(state.items, self.qualified(state.model or req.model), state.usage,
-                            state.status, streamed_text="".join(state.text))
+                            state.status or STREAM_ENDED, streamed_text="".join(state.text))

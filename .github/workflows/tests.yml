@@ -64,7 +64,16 @@ jobs:
       - run: ./scripts/build.sh
       - run: python -m twine check dist/scootcli-*
       - name: Smoke-run the zipapp
-        run: python dist/scoot.pyz --version
+        run: |
+          python dist/scoot.pyz --version
+          # A handled error must exit non-zero from the archive, exactly as from the module.
+          if python dist/scoot.pyz --provider nope "hi" >/dev/null 2>&1; then
+            echo "expected a non-zero exit for an unknown provider"; exit 1
+          fi
+          # The archive holds the package only: no caches, metadata, or Finder files.
+          if python -m zipfile -l dist/scoot.pyz | grep -E "__pycache__|\.pyc|\.DS_Store|egg-info"; then
+            echo "build debris in the archive"; exit 1
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: dist

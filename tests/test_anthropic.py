@@ -284,3 +284,26 @@ def test_stream_error_event_raises(monkeypatch, tmp_path):
         assert False
     except ApiError as exc:
         assert "Overloaded" in str(exc)
+
+
+# ── 0.9.0: an incomplete stream is never a completed answer (review R12) ─────────
+def test_stream_without_message_delta_is_incomplete(monkeypatch, tmp_path):
+    _isolate(monkeypatch, tmp_path)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-000000000000")
+    lines = [
+        _ev({"type": "message_start", "message": {"id": "msg_1", "model": "claude-opus-5", "usage": {"input_tokens": 4}}}),
+        _ev({"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}),
+        _ev({"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "Let me "}}),
+        "HTTP_STATUS:200",
+    ]
+    p = registry.make_provider("anthropic", Config(), transport=_StreamTransport(lines))
+    r = p.chat_stream([{"role": "user", "content": "hi"}], model="claude-opus-5", on_delta=lambda t: None)
+    assert r.content == "Let me " and r.finish_reason == "incomplete"
+
+
+def test_max_tokens_with_tool_use_is_length():
+    from scootcli.providers.anthropic import build_result
+
+    blocks = [{"type": "tool_use", "id": "toolu_1", "name": "write_file", "input": {}}]
+    assert build_result(blocks, "m", None, "max_tokens").finish_reason == "length"
+    assert build_result(blocks, "m", None, "tool_use").finish_reason == "tool_calls"
