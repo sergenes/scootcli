@@ -234,12 +234,13 @@ Put them in `~/.config/scoot/hooks.json` or `.scoot/hooks.json` in the project:
 }
 ```
 
-A `PreToolUse` hook can answer `{"permissionDecision": "deny", "reason": "..."}` to skip a tool (the model is told why), `allow` to skip the approval prompt, or `ask` to force one even in `yolo`; exit code 2 denies with stderr as the reason.
+A `PreToolUse` hook can answer `{"permissionDecision": "deny", "reason": "..."}` to skip a tool (the model is told why), `allow` to skip the approval prompt, or `ask` to force one even in `yolo`; exit code 2 denies with stderr as the reason. Claude Code's nested `hookSpecificOutput` answer is accepted as is, so a hook written for Claude Code works without edits.
 A `Stop` hook that answers `{"decision": "block", "reason": "run the tests first"}` sends the agent back to work with that instruction, at most three times per turn.
+Matchers understand Claude Code's tool names as well as scoot's, so `"matcher": "Bash|Write|Edit"` fires for `run_shell`, `write_file`, and `edit_file`, and the payload carries the alias as `tool_alias`: one `hooks.json` and one script can serve both tools.
 `/hooks` shows what is configured and what ran; `SCOOT_HOOKS=0` turns hooks off.
 
 **Headless mode** is for editors, automation, and remote-control tools: `scoot --headless` reads JSON lines on stdin (`prompt`, `approve`, `note`, `interrupt`, `command`, `shutdown`) and writes JSON lines on stdout (streamed text, tool calls, approval requests, results, plan updates, usage, errors, a heartbeat), with nothing else ever printed there.
-Same sessions, tools, approvals, routing, and hooks as the REPL.
+Same sessions, tools, approvals, routing, and hooks as the REPL; every `turn_end` carries the turn's tokens and cost, and `--json` one-shot output carries `cost` too.
 The message tables and a full transcript are in [`docs/headless-protocol.md`](./docs/headless-protocol.md); an unanswered approval is denied after `SCOOT_APPROVAL_TIMEOUT` seconds (default 120).
 
 ### The status bar

@@ -180,3 +180,23 @@ def test_install_script_uninstall(tmp_path):
     out = subprocess.run(["bash", str(script), "--uninstall"], capture_output=True, text=True,
                          env={"SCOOT_INSTALL_DIR": str(tmp_path), "PATH": "/usr/bin:/bin", "HOME": str(tmp_path)})
     assert "nothing to remove" in out.stdout
+
+
+def test_one_shot_json_includes_cost(monkeypatch, tmp_path, capsys):
+    from scootcli import cli
+    from scootcli.providers import ChatResult, registry
+
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-000000000000")
+
+    class _P:
+        def chat(self, messages, **k):
+            return ChatResult(content="pong", model="openai/gpt-5.3-codex",
+                              usage={"prompt_tokens": 1_000_000, "completion_tokens": 0})
+
+        def list_models(self, cancel_event=None):
+            return []
+
+    monkeypatch.setattr(registry, "make_provider", lambda name, config, transport=None: _P())
+    rc = cli.main(["--root", str(tmp_path), "--no-workspace", "--json", "--model", "openai/gpt-5.3-codex", "ping"])
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 0 and abs(out["cost"] - 1.75) < 1e-9

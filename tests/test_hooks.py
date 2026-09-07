@@ -240,3 +240,36 @@ def test_tool_kind_mapping():
     assert H.tool_kind(tools.get("edit_file")) == "write"
     assert H.tool_kind(tools.get("run_shell")) == "shell"
     assert H.tool_kind(tools.get("update_plan")) == "meta"
+
+
+def test_interpret_accepts_claude_codes_nested_output():
+    from scootcli.hooks import Hooks
+
+    i = Hooks._interpret
+    assert i("PreToolUse", {"hookSpecificOutput": {"permissionDecision": "allow"}}).action == "allow"
+    d = i("PreToolUse", {"hookSpecificOutput": {"permissionDecision": "deny", "permissionDecisionReason": "no"}})
+    assert d.action == "deny" and d.reason == "no"
+    assert i("PreToolUse", {"hookSpecificOutput": {"permissionDecision": "approve"}}).action == "allow"
+    assert i("PreToolUse", {"hookSpecificOutput": {"permissionDecision": "ask"}}).action == "ask"
+    # extra context nested the way Claude Code emits it for UserPromptSubmit / PostToolUse
+    c = i("UserPromptSubmit", {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": "branch: main"}})
+    assert c.action == "" and c.context == "branch: main"
+    # the pre-existing flat shapes still work
+    assert i("PreToolUse", {"permissionDecision": "deny", "reason": "flat"}).reason == "flat"
+    assert i("Stop", {"decision": "block", "reason": "more"}).action == "block"
+    assert i("PreToolUse", {"decision": "approve"}).action == "allow"
+    assert i("PreToolUse", {"additionalContext": "x"}).context == "x"
+
+
+def test_matcher_matches_claude_code_tool_names(tmp_path):
+    from scootcli.hooks import matcher_hits, tool_alias
+
+    assert tool_alias("run_shell") == "Bash" and tool_alias("edit_file") == "Edit" and tool_alias("nope") == "nope"
+    assert matcher_hits("Bash|Write|Edit", "run_shell") and matcher_hits("Bash|Write|Edit", "edit_file")
+    assert not matcher_hits("Bash|Write|Edit", "read_file")
+    assert matcher_hits("run_shell", "run_shell") and matcher_hits("^Read$", "read_file")
+    assert not matcher_hits("[", "run_shell")  # a broken regex never matches
+    deny = _script(tmp_path, "denybash", 'print(json.dumps({"permissionDecision": "deny", "reason": "claude-style matcher"}))')
+    h = _hooks(tmp_path, {"PreToolUse": [{"matcher": "Bash", "hooks": [{"command": deny}]}]})
+    assert h.run("PreToolUse", {"tool_name": "run_shell"}).action == "deny"
+    assert h.run("PreToolUse", {"tool_name": "read_file"}).action == ""

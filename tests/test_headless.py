@@ -129,6 +129,7 @@ def test_full_turn_with_approval_round_trip(tmp_path):
     stdin.send({"type": "approve", "id": req["id"], "decision": "allow"})
     end = out.wait_for("turn_end")
     assert end["status"] == "done" and end["content"] == "It says hello." and end["turn"] == 1
+    assert "cost" in end and "cost_session" in end  # None here (model "m" has no price), present always
     types = [e["type"] for e in out.events()]
     assert types.index("tool_call") < types.index("tool_result") < types.index("turn_end")
     assert out.wait_for("tool_result")["ok"] is True and "hello" in out.wait_for("tool_result")["content"]

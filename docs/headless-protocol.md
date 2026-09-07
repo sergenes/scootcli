@@ -36,7 +36,7 @@ The status bar, the input dock, and the mascot are off.
 | `scope_request` | `id`, `name`, `path`, `options` (`allow_once`, `allow_dir`, `allow_all`, `deny`, `abort`), `timeout_s`; the tool wants a path outside the workspace; answer with `approve` |
 | `tool_result` | `name`, `ok`, `summary`, `error`, `content` (bounded) |
 | `plan` | `steps` (from `update_plan`: `step`, `status`) |
-| `turn_end` | `turn`, `status` (`done` \| `interrupted` \| `aborted` \| `max_steps` \| `error` \| `blocked`), `steps`, `model`, `usage`, `content`, `error` |
+| `turn_end` | `turn`, `status` (`done` \| `interrupted` \| `aborted` \| `max_steps` \| `error` \| `blocked`), `steps`, `model`, `usage`, `cost` (USD for this turn, `null` when a model's price is unknown), `cost_session`, `content`, `error` |
 | `notice` | `message` (compaction, model fallback, step limit reached, approval timed out, note queued) |
 | `command_output` | `name`, `output` |
 | `error` | `message`, `hint`, `kind` (`protocol` \| `turn` \| `command` \| `setup`) |

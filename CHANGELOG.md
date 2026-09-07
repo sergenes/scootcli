@@ -4,6 +4,11 @@ All notable changes to `scoot`. Format loosely follows [Keep a Changelog](https:
 Versions before 0.1.0 were internal builds of the tool's predecessor, renumbered `0.0.N` here and trimmed to what still describes the public tool.
 What comes next lives in [`ROADMAP.md`](./ROADMAP.md); the behaviour spec in [`SPEC.md`](./SPEC.md); design notes in [`DESIGN.md`](./DESIGN.md).
 
+## [Unreleased]
+- **Hook matchers understand Claude Code tool names** (`Bash`, `Write`, `Edit`, `Read`, `Grep`, `LS`, `TodoWrite`) next to scoot's own, and payloads carry `tool_alias`, so one `hooks.json` and one script can serve both tools.
+- **Cost in machine output:** `turn_end` in headless mode carries `cost` (this turn) and `cost_session`; `--json` one-shot output carries `cost`. `null` when a model's price is unknown.
+- **Hooks accept Claude Code's exact output.** A PreToolUse hook answering with the nested `hookSpecificOutput` form (`permissionDecision`, `permissionDecisionReason`, `additionalContext`, `approve` as a synonym for `allow`) now works unchanged; before, only scoot's flat top-level shape was read and such a hook's decision was silently ignored. The 0.4.0 claim of Claude Code-shaped decisions was only true for the input payloads until this fix.
+
 ## [0.6.0] — costs, update check, mid-turn notes (2026-09-06)
 - **Cost in `/status`:** tokens, cached tokens, calls, and USD per model plus a session total, from list prices in `pricing.py` (dated; unknown models show `?`, local models are free); `--verbose` one-shot output includes the cost.
 - **Update check, opt-in:** `scoot --check-update` asks PyPI once; `SCOOT_UPDATE_CHECK=1` makes the REPL check in the background at start and show `⬆ x.y.z` in the bar and `/status`.
