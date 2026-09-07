@@ -289,7 +289,7 @@ python -m pytest -q          # network-free suite
 ./scripts/build.sh           # dist/scoot.pyz + wheel + sdist
 ```
 
-Design notes live in [`DESIGN.md`](./DESIGN.md), the behaviour spec in [`SPEC.md`](./SPEC.md), what is next in [`ROADMAP.md`](./ROADMAP.md), and the release history in [`CHANGELOG.md`](./CHANGELOG.md).
+Design notes live in [`DESIGN.md`](./DESIGN.md), the behaviour spec in [`SPEC.md`](SPEC.md), what is next in [`ROADMAP.md`](./ROADMAP.md), and the release history in [`CHANGELOG.md`](./CHANGELOG.md).
 New capability is a drop-in file: a tool in `tools/`, a slash command in `commands/`, a provider row or adapter in `providers/`.
 
 ## Security

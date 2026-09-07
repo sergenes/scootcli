@@ -2,7 +2,7 @@
 
 Enduring design notes for `scoot` (architecture, layout, subsystems, the agent system prompt, and
 per-feature deep-dives). This is **reference material**, not a task list: what ships is specified in
-[`SPEC.md`](./SPEC.md), what comes next in [`ROADMAP.md`](./ROADMAP.md), and shipped history in
+[`SPEC.md`](SPEC.md), what comes next in [`ROADMAP.md`](./ROADMAP.md), and shipped history in
 [`CHANGELOG.md`](./CHANGELOG.md).
 
 ---
@@ -77,7 +77,7 @@ editing the core.** Everything is built around **registries + small interfaces**
 ```
 scootcli/
 ├── pyproject.toml            # packaging; version comes from scootcli/__init__.py; entrypoint `scoot`
-├── README.md · SPEC.md · DESIGN.md · ROADMAP.md · CHANGELOG.md · AGENTS.md · NAME-AND-LOGO.md
+├── README.md · SPEC.md · DESIGN.md · ROADMAP.md · CHANGELOG.md · AGENTS.md
 ├── .env.example              # every setting, commented (copy to ~/.config/scoot/.env)
 ├── scripts/build.sh          # dist/scoot.pyz + wheel + sdist
 ├── src/scootcli/
