@@ -17,8 +17,16 @@ scrolls horizontally (legacy). With a layout, a long line **wraps onto extra row
 (and shrinks) with it: :func:`wrap_layout` computes the visual geometry purely (unit-tested), and the
 renderer updates the shared layout + asks the status bar to re-establish the scroll region and redraw
 the frame (``on_reflow``) so growing input never overwrites the bar. The input is framed by blank pad
-rows (not drawn rules), which are resize-proof and leave no artifacts. Resize is handled implicitly —
-the renderer recomputes the terminal size on every keystroke.
+rows (not drawn rules), which are resize-proof and leave no artifacts.
+
+**Resize.** A terminal resize (a window drag, a font zoom) resets the scroll region and moves the
+content: the bar is gone, the input is on the wrong row. With a :class:`~scootcli.resize.ResizeWatcher`
+the read loop wakes up on ``SIGWINCH`` and repaints at once. To put things back where they belong it
+needs one fact the terminal keeps to itself: where the transcript ended. So ``readline`` asks for the
+cursor position (``ESC[6n``) right after saving that spot (the "anchor" the answer resumes at), and
+again for the caret after a resize; the difference says how far the content moved, and
+:func:`~scootcli.resize.plan_reanchor` turns that into the scroll + clear + redraw that keeps the
+transcript, the input, and the bar consistent at the new size.
 """
 
 from __future__ import annotations
@@ -26,6 +34,8 @@ from __future__ import annotations
 import os
 import shutil
 import sys
+import time
+from collections import deque
 from dataclasses import dataclass, replace
 
 from .rendering import color
@@ -60,6 +70,9 @@ _KILL_TO_START = "KILL_BOL"  # Ctrl-U
 _KILL_TO_END = "KILL_EOL"    # Ctrl-K
 _KILL_WORD = "KILL_WORD"     # Ctrl-W
 _PASTE_START = "PASTE_START"  # ESC[200~ — begin a bracketed-paste payload
+_RESIZE = "RESIZE"           # the terminal changed size (ResizeWatcher wake-up)
+_CURSOR = "cursor"           # ("cursor", row, col): the terminal's answer to ESC[6n
+_PASTE = "paste"             # ("paste", text): a bracketed-paste payload
 
 # Terminal control: enable/disable bracketed-paste mode so a multi-line paste arrives as one payload
 # (wrapped in ESC[200~ … ESC[201~) instead of a stream of Enter keys that would each submit.
@@ -308,17 +321,40 @@ def wrap_layout(prompt_len: int, buffer: str, cursor: int, cols: int, max_rows: 
 
 
 
+def parse_cursor_report(body: str):
+    """``"row;col"`` (the inside of ``ESC[row;colR``) → ``("cursor", row, col)``, or ``None`` if malformed."""
+    row, sep, col = body.partition(";")
+    if not sep or not row.isdigit() or not col.isdigit():
+        return None
+    return (_CURSOR, int(row), int(col))
+
+
 class LineEditor:
     """Reads a line on a fixed bottom row; falls back to builtin ``input()`` when disabled/non-TTY."""
 
-    def __init__(self, enabled: bool = True, on_copy=None, layout=None, on_reflow=None, completer=None):
+    # How long to wait for the terminal's cursor report before carrying on without it. Local
+    # terminals answer within a millisecond; a slow SSH hop is the only thing that gets near this.
+    CURSOR_REPORT_TIMEOUT = 0.15
+
+    def __init__(self, enabled: bool = True, on_copy=None, layout=None, on_reflow=None, completer=None,
+                 resize=None):
         self.enabled = bool(enabled) and _HAVE_TERMIOS and sys.stdin.isatty() and sys.stdout.isatty()
         self.history: list = []  # submitted lines, oldest→newest (↑/↓ recall)
         self.on_copy = on_copy   # zero-arg callback for Ctrl-S (copies + prints its own feedback)
         self.layout = layout     # shared DockLayout for multi-row growth (None = legacy single row)
         self.on_reflow = on_reflow  # called after layout.input_rows changes (re-establish region+frame)
         self.completer = completer  # zero-arg callable → iterable of slash-command names (no leading /)
+        self.resize = resize     # ResizeWatcher: wakes the read loop on SIGWINCH (None = poll on keys)
+        self.active = False      # True while readline owns the terminal (the Repl's resize hook checks)
         self._drawn_rows = 1     # visual input-height currently on screen (drives clear-on-shrink)
+        self._caret_row = 0      # terminal row the caret was last drawn on (1-based)
+        self._caret_col = 0      # 0-based column of the caret as last drawn
+        self._caret_offset = 0   # input rows drawn above the caret's row
+        self._drawn_cols = 0     # terminal width at the last draw (re-wrap math on a width change)
+        self._input_top = 0      # terminal row of the first input row as last drawn (1-based)
+        self._anchor = None      # (row, col) where output resumes after the prompt; row may be < 1
+        self._pending = deque()  # keys read ahead while waiting for a cursor report
+        self._reports = deque()  # what each outstanding ESC[6n was for, oldest first: "anchor"/"caret"
 
 
     def readline(self, prompt: str = "› ") -> str:
@@ -337,16 +373,34 @@ class LineEditor:
         if self.layout is not None:
             self.layout.input_rows = 1  # start each line at a single row; it grows as the line wraps
             self._drawn_rows = 1
+        self._anchor = None
+        self._pending.clear()
+        self._reports.clear()
         try:
             tty.setraw(fd)  # raw: deliver Ctrl-C/Ctrl-D as bytes (we translate them ourselves)
+            self.active = True
             sys.stdout.write(_PASTE_ON)  # ask the terminal to bracket pasted text
             sys.stdout.write("\0337")  # DECSC: save the in-region cursor to restore afterwards
-            self._render(prompt, state)
+            # Ask where that anchor is, and wait briefly for the answer before the first paint: if the
+            # last turn ended with the cursor inside the dock (a resize while it ran), the transcript's
+            # tail must be scrolled up before the input rows are drawn over it.
+            self._request_cursor("anchor")
+            if self._await_cursor("anchor") and self._anchor_below_region():
+                self._repaint(prompt, state)
+            else:
+                self._render(prompt, state)
             while not state.done:
-                key = self._read_key()
+                key = self._next_key()
                 if key is None:  # stream closed → treat as EOF
                     state = replace(state, eof=True)
                     break
+                if key == _RESIZE:  # the terminal changed size: repaint everything at the new geometry
+                    self._repaint(prompt, state)
+                    continue
+                if isinstance(key, tuple) and key[0] == _CURSOR:  # a late cursor report
+                    if self._note_cursor(key) == "anchor" and self._anchor_below_region():
+                        self._repaint(prompt, state)
+                    continue
                 if isinstance(key, tuple):  # ("paste", text) → bulk insert, never submits
                     state = insert_text(state, key[1])
                 elif key == "\x1b":  # lone ESC (no recognised sequence) → ignore
@@ -382,6 +436,7 @@ class LineEditor:
             sys.stdout.write(_PASTE_OFF)  # stop bracketing paste once we hand control back
             sys.stdout.flush()
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
+            self.active = False
 
 
         if state.interrupt:
@@ -403,21 +458,35 @@ class LineEditor:
         except Exception:
             return ()
 
+    def _next_key(self):
+        """The next key: one read ahead while waiting for a cursor report, else a fresh read."""
+        if self._pending:
+            return self._pending.popleft()
+        return self._read_key()
+
     def _read_key(self):
-        """Read one logical key: a decoded char, an ESC-sequence token, a ``("paste", text)`` event,
-        or ``None`` on EOF.
+        """Read one logical key: a decoded char, an ESC-sequence token, a ``("paste", text)`` or
+        ``("cursor", row, col)`` event, ``RESIZE`` when the terminal changed size, or ``None`` on EOF.
 
         Reads straight from the raw fd via ``os.read`` (not ``sys.stdin``) so escape sequences aren't
-        stranded in Python's stream buffer where ``select`` can't see them.
+        stranded in Python's stream buffer where ``select`` can't see them. With a resize watcher the
+        read waits on its wake-up pipe too, so a resize repaints at once rather than at the next key.
         """
         fd = sys.stdin.fileno()
+        wake = self.resize.fd if self.resize is not None else -1
+        while wake >= 0:
+            ready, _, _ = select.select([fd, wake], [], [])
+            if wake in ready and self.resize.take():
+                return _RESIZE
+            if fd in ready:
+                break
         b = os.read(fd, 1)
         if not b:
             return None
         if b == b"\x1b":
             token = self._read_escape(fd)
             if token == _PASTE_START:
-                return ("paste", self._read_paste(fd))
+                return (_PASTE, self._read_paste(fd))
             return token or "\x1b"
         return self._decode(fd, b)
 
@@ -462,13 +531,66 @@ class LineEditor:
             num = code
             while True:
                 nxt = more()
-                if nxt in ("", "~"):
+                if nxt in ("", "~", "R"):
                     break
                 num += nxt
+            if nxt == "R":  # cursor position report: ESC[row;colR (the answer to ESC[6n)
+                return parse_cursor_report(num)
             if num == "200":
                 return _PASTE_START
             return {"1": _HOME, "7": _HOME, "4": _END, "8": _END, "3": _DELETE}.get(num)
         return None
+
+    # ── cursor reports (where the transcript ends, where the caret went after a resize) ──────────
+    def _request_cursor(self, kind: str) -> None:
+        """Ask the terminal where the cursor is; the reply is matched to ``kind`` in arrival order."""
+        from .resize import CURSOR_REPORT
+
+        self._reports.append(kind)
+        sys.stdout.write(CURSOR_REPORT)
+        sys.stdout.flush()
+
+    def _note_cursor(self, report) -> str:
+        """Record a ``("cursor", row, col)`` reply against the oldest outstanding request; return its kind."""
+        kind = self._reports.popleft() if self._reports else "anchor"
+        if kind == "anchor":
+            self._anchor = (report[1], report[2])
+        return kind
+
+    def _await_cursor(self, kind: str, timeout: float = None):
+        """Wait (briefly) for the reply to the outstanding ``kind`` request; keys typed meanwhile are
+        queued for the main loop. Returns ``(row, col)`` or ``None`` when the terminal did not answer
+        in time, in which case all outstanding requests are forgotten, so a late reply can never be
+        matched to the wrong question."""
+        if timeout is None:
+            timeout = self.CURSOR_REPORT_TIMEOUT
+        fd = sys.stdin.fileno()
+        deadline = time.monotonic() + timeout
+        while kind in self._reports:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            ready, _, _ = select.select([fd], [], [], remaining)
+            if not ready:
+                break
+            key = self._read_key()
+            if key is None:
+                self._pending.append(None)  # EOF: let the main loop see it after the repaint
+                break
+            if isinstance(key, tuple) and key[0] == _CURSOR:
+                if self._note_cursor(key) == kind:
+                    return key[1], key[2]
+                continue
+            self._pending.append(key)
+        self._reports.clear()
+        return None
+
+    def _anchor_below_region(self) -> bool:
+        """Whether the output anchor sits inside the dock's band (the last turn ended after a resize)."""
+        if self._anchor is None or self.layout is None:
+            return False
+        rows = shutil.get_terminal_size((80, 24)).lines
+        return self._anchor[0] > self.layout.region_bottom(rows)
 
     @staticmethod
     def _read_paste(fd: int) -> str:
@@ -504,7 +626,7 @@ class LineEditor:
             self.on_copy()
         finally:
             sys.stdout.write("\0337")  # DECSC: re-save for the next scroll-region write
-            sys.stdout.flush()
+            self._request_cursor("anchor")  # the feedback moved the anchor: learn its new row
 
     def _render(self, prompt: str, state: EditorState) -> None:
         """Draw the prompt + buffer on the fixed input row(s) and place the caret at the edit point."""
@@ -512,6 +634,50 @@ class LineEditor:
             self._render_multi(prompt, state)
         else:
             self._render_single(prompt, state)
+
+    def _repaint(self, prompt: str, state: EditorState) -> None:
+        """Rebuild the dock after a resize (or when the anchor turned up inside the dock's band).
+
+        The terminal moved the content and the cursor together, so the caret's new row (asked for
+        with ``ESC[6n``) says how far the transcript's end moved. From that, :func:`plan_reanchor`
+        gives the row where output resumes; if it spilled into the band the whole screen is scrolled
+        up first (the region is reset to full height for that), everything below it is blanked, the
+        region and the frame are re-established, the anchor is re-saved (DECSC) where the answer will
+        print, and the input is drawn at its new place. Emitted as one write so nothing interleaves.
+        """
+        if self.layout is None:
+            self._render(prompt, state)
+            return
+        from .resize import input_rewrap_rows, plan_reanchor
+
+        size = shutil.get_terminal_size((80, 24))
+        rows, cols = size.lines, size.columns
+        self._request_cursor("caret")
+        caret_now = self._await_cursor("caret")
+        caret_row = caret_now[0] if caret_now else min(self._caret_row or rows, rows)
+        # The caret's row overstates the transcript's shift by the re-wrap of our own input rows.
+        caret_row -= input_rewrap_rows(self._caret_offset, self._caret_col, self._drawn_cols or cols, cols,
+                                       caret_now[1] if caret_now else None)
+        if self._anchor is not None:
+            anchor_row, anchor_col = self._anchor
+        else:
+            # Unknown anchor: assume the transcript ran right up to the dock (never overwrites output).
+            anchor_row, anchor_col = max(1, (self._input_top or rows) - 2), 1
+        _, height, _, _ = wrap_layout(len(prompt), state.buffer, state.cursor, cols, self.layout.MAX_INPUT_ROWS)
+        self.layout.input_rows = height
+        plan = plan_reanchor(anchor_row, self._caret_row or caret_row, caret_row, self.layout.region_bottom(rows))
+        out = ["\033[r"]  # full-height region so the scroll below moves the whole screen
+        if plan.scroll:
+            out.append(f"\033[{rows};1H" + "\n" * plan.scroll)
+        out.extend(f"\033[{r};1H\033[2K" for r in range(plan.clear_from, rows + 1))
+        sys.stdout.write("".join(out))
+        self._drawn_rows = height
+        if self.on_reflow is not None:
+            self.on_reflow()  # re-establish the region + redraw pad/spacer/bar for the new geometry
+        col = anchor_col if plan.anchor_row >= 1 else 1
+        sys.stdout.write(f"\033[{plan.cursor_row};{col}H\0337")  # re-save where output resumes
+        self._anchor = (plan.anchor_row, col)  # keep the virtual row: a later grow may bring it back
+        self._render(prompt, state)
 
     def _render_single(self, prompt: str, state: EditorState) -> None:
         """Legacy one-row renderer: long lines scroll horizontally to keep the caret visible."""
@@ -529,6 +695,8 @@ class LineEditor:
             + color(prompt, "green") + visible
             + f"\033[{row};{curcol}H"      # position the caret at the edit column
         )
+        self._caret_row = self._input_top = row
+        self._caret_col, self._caret_offset, self._drawn_cols = curcol - 1, 0, cols
         sys.stdout.flush()
 
     def _render_multi(self, prompt: str, state: EditorState) -> None:
@@ -569,6 +737,8 @@ class LineEditor:
             sys.stdout.write(f"\033[{top + i};1H\033[2K" + seg)
         caret_row = top + (caret_line - window_top)
         sys.stdout.write(f"\033[{caret_row};{caret_col + 1}H")  # position the caret at the edit point
+        self._caret_row, self._input_top = caret_row, top
+        self._caret_col, self._caret_offset, self._drawn_cols = caret_col, caret_line - window_top, cols
         sys.stdout.flush()
 
 

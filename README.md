@@ -91,6 +91,7 @@ scoot --model auto "..."             # pick a model per prompt from the live lis
 ```
 
 Inside the REPL, `/model <provider/model>` switches and is remembered for the next launch; `/model default` goes back to the provider's preferred model.
+Starting the REPL with `--model` is remembered the same way, so `scoot --model ollama/llama3.2` once and plain `scoot` afterwards keep using it; a one-shot `scoot --model X "prompt"` does not change the saved choice.
 
 ### Routing
 
@@ -194,6 +195,7 @@ Press **Ctrl-N** while a turn is running to add a note: scoot asks for one line 
 Type `/` and press **Tab** to complete slash commands.
 
 **Terminals.** scoot works in macOS Terminal, iTerm2, and inside tmux; the status bar uses a scroll region, the input dock uses raw mode, and clipboard copy uses the system tool or an OSC-52 escape.
+Resizing the window or zooming the font (also under tmux) repaints the dock at once: the transcript stays where it was, the input keeps its place and the bar is redrawn, at the prompt and while a turn runs.
 Under tmux, ESC reaches scoot only after tmux's `escape-time` has passed, so with the default 500 ms the interrupt feels delayed; `set -sg escape-time 10` in `~/.tmux.conf` makes it immediate.
 For clipboard copy through tmux, `set -g set-clipboard on` (or `external`) lets the OSC-52 escape reach the outer terminal.
 Without a TTY, scoot falls back to a plain prompt with no bar and no dock.

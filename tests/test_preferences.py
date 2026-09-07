@@ -79,3 +79,54 @@ if __name__ == "__main__":
             passed += 1
     print(f"\n{passed} passed")
 
+
+
+def test_model_flag_is_remembered_when_launching_the_repl(monkeypatch):
+    """``scoot --model X`` (REPL) saves X like ``/model X`` does, so a plain ``scoot`` reuses it."""
+    _fresh_config_dir()
+    from scootcli import cli, preferences
+    from scootcli.config import Config
+    from scootcli.providers import registry
+    import scootcli.repl as repl_mod
+
+    cfg = Config().override(model="openai/chat-latest")
+
+    class _FakePool:
+        def __init__(self):
+            self.config = cfg
+            self.spec = registry.get("ollama")
+
+    class _FakeRepl:
+        def __init__(self, config, provider, resume=None):
+            pass
+
+        def run(self):
+            return 0
+
+    monkeypatch.setattr(repl_mod, "Repl", _FakeRepl)
+    assert preferences.get_model() is None
+    cli._interactive(_FakePool(), resume=None, remember_model="openai/chat-latest")
+    assert preferences.get_model() == "openai/chat-latest"
+    # Launching without a flag keeps the saved choice; blank never clears it.
+    cli._interactive(_FakePool(), resume=None, remember_model=None)
+    cli._interactive(_FakePool(), resume=None, remember_model="  ")
+    assert preferences.get_model() == "openai/chat-latest"
+    assert Config.load().model == "openai/chat-latest"  # the next launch resolves to it
+
+
+def test_model_flag_is_not_remembered_for_one_shot_prompts(monkeypatch):
+    """A one-shot ``scoot --model X "prompt"`` must not change the saved preference."""
+    _fresh_config_dir()
+    from scootcli import cli, preferences
+
+    calls = {}
+
+    def _once(*a, **k):
+        calls["once"] = True
+        return 0
+
+    monkeypatch.setattr(cli, "_run_once", _once)
+    monkeypatch.setattr(cli, "ProviderPool", lambda config: type("P", (), {"config": config})())
+    assert cli.main(["--model", "openai/chat-latest", "say hi"]) == 0
+    assert calls.get("once")
+    assert preferences.get_model() is None

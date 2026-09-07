@@ -6,13 +6,19 @@ the in-flight request (and, later, tool) immediately.
 
 Line editing for typing prompts happens in normal cooked mode (plain ``input()``); raw mode is only
 active *while the agent works*, so we never interfere with the user typing.
+
+While a section is active it is the only reader of stdin, so it also relays the terminal's answer to
+a cursor-position request (``ESC[6n`` → ``ESC[row;colR``); :func:`query_cursor` is how the REPL finds
+out where output is after a resize that happened mid-turn.
 """
 
 from __future__ import annotations
 
 import os
+import re
 import sys
 import threading
+from typing import Optional, Tuple
 
 try:
     import termios
@@ -25,6 +31,35 @@ except ImportError:  # pragma: no cover - non-POSIX
 
 ESC = "\x1b"
 NOTE_KEY = b"\x0e"  # Ctrl-N: ask for a note at the next model call
+_CURSOR_REPORT = re.compile(rb"\x1b\[(\d+);(\d+)R")  # the terminal's answer to ESC[6n
+
+_active_section: "Optional[InterruptibleSection]" = None  # the section currently reading stdin
+
+
+def parse_cursor_report(data: bytes) -> Optional[Tuple[int, int]]:
+    """``(row, col)`` from a byte stream holding ``ESC[row;colR``, or ``None``."""
+    m = _CURSOR_REPORT.search(data)
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+def query_cursor(timeout: float = 0.2) -> Optional[Tuple[int, int]]:
+    """Ask the terminal where the cursor is, while a section's listener can read the answer.
+
+    Returns ``(row, col)`` (1-based) or ``None`` when no section is active (so nothing would read the
+    reply and it would leak into the next prompt) or the terminal did not answer in time.
+    """
+    section = _active_section
+    if section is None or not section.enabled:
+        return None
+    from .resize import CURSOR_REPORT
+
+    section.cursor_event.clear()
+    section.cursor_report = None
+    sys.stdout.write(CURSOR_REPORT)
+    sys.stdout.flush()
+    if section.cursor_event.wait(timeout):
+        return section.cursor_report
+    return None
 
 
 def read_key() -> str:
@@ -63,8 +98,11 @@ class InterruptibleSection:
         self._old_attrs = None
         self._thread = None
         self._stop = threading.Event()
+        self.cursor_report: Optional[Tuple[int, int]] = None  # last ESC[row;colR seen (see query_cursor)
+        self.cursor_event = threading.Event()
 
     def __enter__(self) -> "InterruptibleSection":
+        global _active_section
         if not self.enabled:
             return self
         try:
@@ -76,6 +114,7 @@ class InterruptibleSection:
             return self
         self._thread = threading.Thread(target=self._listen, daemon=True)
         self._thread.start()
+        _active_section = self
         return self
 
     def _listen(self) -> None:
@@ -102,17 +141,27 @@ class InterruptibleSection:
                 except (OSError, ValueError):
                     more = None
                 if more:
+                    seq = bytearray(ch)
                     try:
                         while select.select([sys.stdin], [], [], 0)[0]:
-                            if not os.read(self._fd, 1):
+                            byte = os.read(self._fd, 1)
+                            if not byte:
                                 break
+                            seq += byte
                     except (OSError, ValueError):
                         pass
+                    report = parse_cursor_report(bytes(seq))
+                    if report is not None:  # the terminal answering query_cursor
+                        self.cursor_report = report
+                        self.cursor_event.set()
                     continue
                 self.cancel_event.set()
                 break
 
     def __exit__(self, *exc) -> None:
+        global _active_section
+        if _active_section is self:
+            _active_section = None
         self._stop.set()
         if self._thread is not None:
             self._thread.join(timeout=0.3)

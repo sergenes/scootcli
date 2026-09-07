@@ -745,7 +745,13 @@ A minimal readline that renders on a fixed row and returns the typed string.
 - **Line wrap**: long inputs use horizontal scroll, never wrap (which would corrupt other rows).
 - **Unicode width**: v1 counts codepoints; wide chars (CJK/emoji) may misalign by a column — acceptable
   for v1, note it.
-- **Resize (SIGWINCH)**: recompute geometry and redraw; scroll region self-heals on next render.
+- **Resize (SIGWINCH)**: `resize.py` installs the handler with a wake-up pipe so the editor's blocking
+  read returns at once. The terminal moves content and cursor together on a resize, so the editor asks
+  for the cursor position (`ESC[6n`) when it saves the output anchor and again for the caret after
+  the resize; the difference (minus the re-wrap of its own full-width rows) locates the transcript's
+  end, which is scrolled up if it spilled into the dock, then region, bar, and input are redrawn in
+  one write. Mid-turn the ESC listener relays the cursor report and the same repaint runs from the
+  handler; the spinner shares a paint lock with it so frames never interleave.
 - **Paste**: bracketed-paste (`\033[?2004h`) captured as one burst; embedded newlines → spaces in v1
   (multi-line compose via Alt+Enter is future work).
 - **Ctrl-C**: quit app (consistent with today). **Terminal restore** guaranteed via try/finally.

@@ -225,11 +225,21 @@ def _cmd_auth(config: Config, pool: ProviderPool, words: List[str]) -> int:
     return 0
 
 
-def _interactive(pool: ProviderPool, resume=None) -> int:
-    """Launch the persistent REPL (banner, live status, ESC-interrupt, slash-commands)."""
+def _interactive(pool: ProviderPool, resume=None, remember_model: Optional[str] = None) -> int:
+    """Launch the persistent REPL (banner, live status, ESC-interrupt, slash-commands).
+
+    ``remember_model`` is the model named on the command line (``--model``), if any. Launching the REPL
+    with it counts as choosing it, exactly like ``/model`` inside the REPL, so it is saved as the
+    preference and a plain ``scoot`` next time starts on the same model. One-shot prompts and headless
+    runs do not save it: a flag on a single command is not a choice for the next session.
+    """
     from .repl import Repl
 
     config = pool.config
+    if remember_model and remember_model.strip():
+        from .preferences import set_model
+
+        set_model(remember_model.strip())
     # resume=auto (SCOOT_RESUME / --resume-last): reload the latest session for this directory
     # unless the user already picked one explicitly via --resume/--continue.
     if resume is None and getattr(config, "resume", "hint") == "auto":
@@ -309,7 +319,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             return run_headless(config.override(panel=False, dock=False, logo=False), pool, resume=resume)
         if prompt is not None:
             return _run_once(config, pool, prompt, args.json, resume=resume)
-        return _interactive(pool, resume=resume)
+        return _interactive(pool, resume=resume, remember_model=args.model)
     except ScootError as exc:
         eprint(color(f"⚠ {redact(str(exc))}", "red"))
         return 1

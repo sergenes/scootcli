@@ -516,10 +516,15 @@ class Repl:
 
             self._dock_layout = DockLayout()
             self.bar.layout = self._dock_layout
+        # Resize (SIGWINCH): wakes the editor's read loop so it repaints at once; between prompts the
+        # handler calls _repaint_after_resize (see run()). Only meaningful with the dock on a TTY.
+        from .resize import ResizeWatcher
+
+        self.resize = ResizeWatcher() if self.dock else None
         self.editor = LineEditor(
             enabled=self.dock, on_copy=self._copy_last,
             layout=self._dock_layout, on_reflow=self._reflow_dock,
-            completer=self._command_names,
+            completer=self._command_names, resize=self.resize,
         )
         self.session.status_bar = self.bar  # let the /panel command reach it
         from .hooks import Hooks
@@ -593,11 +598,15 @@ class Repl:
 
         session_event(self.session, "SessionStart", source="resume" if self.session.resumed else "startup")
         self._start_update_check()
+        if self.resize is not None:
+            self.resize.install(self._on_resize_signal)
         code = 1
         try:
             code = self._loop()
             return code
         finally:
+            if self.resize is not None:
+                self.resize.uninstall()
             self.bar.remove()
             session_event(self.session, "SessionEnd", reason="quit" if code == 0 else f"exit {code}")
 
@@ -736,6 +745,52 @@ class Repl:
             self.bar.reflow()  # re-establish region + redraw frame; no DECSC/DECRC (editor owns it)
         except Exception:
             pass  # never let a redraw break the input loop
+
+    def _on_resize_signal(self) -> None:
+        """SIGWINCH outside the editor (a turn is running, or a command is printing)."""
+        if self.editor.active:
+            return  # the editor's read loop wakes up and repaints on its own
+        try:
+            self._repaint_after_resize()
+        except Exception:
+            pass  # a repaint must never break the REPL
+
+    def _repaint_after_resize(self) -> None:
+        """Put the dock back after a mid-turn resize: the terminal reset the scroll region and moved
+        the content, so output would run into the band and the bar would scroll away.
+
+        While the ESC listener owns stdin the terminal can be asked where the cursor is; if it sits
+        inside the new band the whole screen is scrolled up so the cursor lands on the region's last
+        row (the transcript keeps flowing from there), the band is blanked, and the region and bar are
+        re-established around the cursor. With no listener (an approval prompt is up) the cursor's
+        row is unknown, so only the region and the bar are restored around it.
+        """
+        from . import keys
+        from .status import paint_lock
+
+        if not self.bar.enabled:
+            return
+        with paint_lock:
+            text = build_status_text(self.session, self._user)
+            pos = keys.query_cursor()
+            if pos is None or self._dock_layout is None:
+                self.bar.render(text)
+                return
+            rows = shutil.get_terminal_size((80, 24)).lines
+            self._dock_layout.input_rows = 1  # the dock is collapsed between prompts
+            bottom = self._dock_layout.region_bottom(rows)
+            row, col = pos
+            scroll = max(0, row - bottom)
+            out = ["\033[r"]  # full-height region so the scroll moves the whole screen
+            if scroll:
+                out.append(f"\033[{rows};1H" + "\n" * scroll)
+                row -= scroll
+            out.extend(f"\033[{r};1H\033[2K" for r in range(bottom + 1, rows + 1))
+            sys.stdout.write("".join(out))
+            self.bar.set_text(text)
+            self.bar.reflow()  # DECSTBM + pad/spacer/bar; leaves the cursor anywhere
+            sys.stdout.write(f"\033[{row};{col}H")
+            sys.stdout.flush()
 
     # ── UI ─────────────────────────────────────────────────────────────────────
     def _redraw_home(self, note: str = None) -> None:
