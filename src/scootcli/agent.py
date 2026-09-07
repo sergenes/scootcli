@@ -344,6 +344,19 @@ class Agent:
         )
 
     @staticmethod
+    def _tool_payload(result: ToolResult) -> str:
+        """What the model reads back. On failure the error line comes first, followed by whatever
+        the tool captured: a failing test's or compiler's output is exactly what the model needs
+        next, and ``ERROR: exit 1`` alone only invites a blind rerun."""
+        if result.ok:
+            return result.content or "(no output)"
+        head = f"ERROR: {result.error or 'failed'}"
+        body = (result.content or "").strip()
+        if body.startswith(result.error or "\0"):
+            body = body[len(result.error):].lstrip("\n")
+        return f"{head}\n{body}" if body else head
+
+    @staticmethod
     def _parse_args(raw) -> dict:
         if isinstance(raw, dict):
             return raw
@@ -448,8 +461,7 @@ class Agent:
 
             self._handle_result(session, name, result, ui)
             self._post_tool_hook(session, tool, args, result)
-            payload = result.content if result.ok else f"ERROR: {result.error}"
-            self._append_tool(session, tc_id, payload or "(no output)")
+            self._append_tool(session, tc_id, self._tool_payload(result))
         return None
 
     @staticmethod

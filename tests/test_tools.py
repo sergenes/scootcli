@@ -268,3 +268,115 @@ if __name__ == "__main__":
             passed += 1
     print(f"\n{passed} passed")
 
+
+
+# ── 0.9.0: writes that cannot lose data (review R08) ────────────────────────────
+def test_write_file_without_content_is_rejected_not_emptied():
+    """A malformed call carrying only a path used to empty the file and report success."""
+    tools.load_builtins()
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        (root / "keep.txt").write_text("precious\n")
+        res = tools.get("write_file").run({"path": "keep.txt"}, _ctx(root))
+        assert not res.ok and "content" in res.error
+        assert (root / "keep.txt").read_text() == "precious\n"
+        # None is the same malformed call; an explicit empty string is a real request.
+        res = tools.get("write_file").run({"path": "keep.txt", "content": None}, _ctx(root))
+        assert not res.ok and (root / "keep.txt").read_text() == "precious\n"
+        res = tools.get("write_file").run({"path": "keep.txt", "content": ""}, _ctx(root))
+        assert res.ok and (root / "keep.txt").read_text() == ""
+
+
+def test_edit_file_preserves_crlf_and_refuses_non_utf8():
+    tools.load_builtins()
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        crlf = root / "win.txt"
+        crlf.write_bytes(b"one\r\ntwo\r\nthree\r\n")
+        # The model quotes the file with plain \n; the file keeps its CRLF endings everywhere.
+        res = tools.get("edit_file").run({"path": "win.txt", "old_string": "two\n", "new_string": "TWO\n"}, _ctx(root))
+        assert res.ok, res.error
+        assert crlf.read_bytes() == b"one\r\nTWO\r\nthree\r\n"
+        binary = root / "bin.txt"
+        binary.write_bytes(b"one\xff\ntwo\n")
+        res = tools.get("edit_file").run({"path": "bin.txt", "old_string": "two", "new_string": "TWO"}, _ctx(root))
+        assert not res.ok and "UTF-8" in res.error
+        assert binary.read_bytes() == b"one\xff\ntwo\n"  # untouched, not "repaired"
+        res = tools.get("edit_file").run({"path": "win.txt", "old_string": "", "new_string": "x"}, _ctx(root))
+        assert not res.ok
+
+
+def test_atomic_write_keeps_old_file_on_failure_and_preserves_mode():
+    import os
+    from scootcli.tools.base import FileChangedError, atomic_write_bytes
+
+    with tempfile.TemporaryDirectory() as d:
+        target = Path(d) / "script.sh"
+        target.write_text("#!/bin/sh\necho old\n")
+        os.chmod(target, 0o755)
+        atomic_write_bytes(target, b"#!/bin/sh\necho new\n")
+        assert target.read_text() == "#!/bin/sh\necho new\n"
+        assert (target.stat().st_mode & 0o777) == 0o755
+        assert [p.name for p in Path(d).iterdir()] == ["script.sh"]  # no temp file left behind
+        # A file that changed after it was read is not overwritten.
+        before = target.stat()
+        os.utime(target, (before.st_atime, before.st_mtime + 5))
+        try:
+            atomic_write_bytes(target, b"stale", expect_stat=before)
+            assert False, "expected FileChangedError"
+        except FileChangedError:
+            pass
+        assert target.read_text() == "#!/bin/sh\necho new\n"
+        assert [p.name for p in Path(d).iterdir()] == ["script.sh"]
+
+
+# ── 0.9.0: cancellation reaches the whole process tree (review R10) ─────────────
+def test_run_subprocess_timeout_kills_descendants_and_returns_promptly():
+    import os
+    import time
+    from scootcli.tools.base import ToolError, run_subprocess
+
+    if os.name != "posix":
+        return
+    with tempfile.TemporaryDirectory() as d:
+        marker = Path(d) / "marker"
+        # A grandchild that keeps stdout open and would write a marker after the shell is gone.
+        cmd = ["/bin/sh", "-c", f"(sleep 1.5; touch {marker}) & wait"]
+        started = time.monotonic()
+        try:
+            run_subprocess(cmd, Path(d), timeout=0.3)
+            assert False, "expected a timeout"
+        except ToolError as exc:
+            assert "timed out" in str(exc)
+        assert time.monotonic() - started < 3, "the final wait must be bounded"
+        time.sleep(1.8)
+        assert not marker.exists(), "the descendant outlived the cancelled command"
+
+
+def test_run_subprocess_cancel_kills_process_group():
+    import os
+    import threading
+    import time
+    from scootcli.errors import Interrupted
+    from scootcli.tools.base import run_subprocess
+
+    if os.name != "posix":
+        return
+    with tempfile.TemporaryDirectory() as d:
+        marker = Path(d) / "marker"
+        cancel = threading.Event()
+        threading.Timer(0.2, cancel.set).start()
+        try:
+            run_subprocess(["/bin/sh", "-c", f"(sleep 1.5; touch {marker}) & wait"], Path(d), cancel, timeout=10)
+            assert False, "expected Interrupted"
+        except Interrupted:
+            pass
+        time.sleep(1.8)
+        assert not marker.exists()
+
+
+def test_run_subprocess_feeds_stdin_text():
+    from scootcli.tools.base import run_subprocess
+
+    rc, out, _err = run_subprocess(["/bin/sh", "-c", "cat"], Path("."), timeout=5, input_text="from stdin")
+    assert rc == 0 and out == "from stdin"

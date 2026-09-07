@@ -155,3 +155,18 @@ if __name__ == "__main__":
             passed += 1
     print(f"\n{passed} passed")
 
+
+
+def test_failed_tool_output_reaches_the_model():
+    """R09: a failing command's diagnostics are the payload, not just ``ERROR: exit 1``."""
+    with tempfile.TemporaryDirectory() as d:
+        agent, session = _agent(Path(d), [
+            _toolcall("run_shell", {"command": "echo 'useful diagnostic' >&2; exit 1"}),
+            ChatResult(content="I see the diagnostic.\nDONE", model="m"),
+        ])
+        outcome = agent.run_turn(session, HeadlessUI(Decision.APPROVE))
+        assert outcome.status == "done"
+        payload = [m["content"] for m in session.messages if m.get("role") == "tool"][0]
+        assert payload.startswith("ERROR: exit 1")
+        assert "useful diagnostic" in payload
+        assert payload.count("exit 1") == 1  # the exit line is not repeated
