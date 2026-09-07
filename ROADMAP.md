@@ -47,6 +47,10 @@ Hooks accept Claude Code's nested `hookSpecificOutput` decisions and match its t
 `--model` on the REPL command line is saved like `/model`, so a plain `scoot` starts on it next time.
 The dock repaints on `SIGWINCH`: the editor wakes at once, locates the transcript's end from the terminal's cursor report, scrolls it up if needed, and redraws region, bar, and input; a resize mid-turn is repaired the same way.
 
+## 0.8.1: a model per folder (released 2026-09-07)
+
+`/model X` and `--model X` are remembered for the workspace; `/model X everywhere` sets the fallback for every folder, `/model forget` drops the folder's choice, `/status` names the layer the model came from.
+
 ## Later, as configuration rows
 
 - xAI (Grok), Groq, OpenRouter, LM Studio, vLLM: each is a `ProviderSpec` once its Responses or Chat Completions support is checked.
