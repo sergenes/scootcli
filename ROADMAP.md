@@ -38,6 +38,10 @@ The workspace is the default, not a wall: a file tool that needs a path outside 
 
 The domain is bought and does nothing yet. The options weighed (a page, Firebase redirects, GoDaddy forwarding), the redirect config, and the GoDaddy steps are kept outside the repo in the maintainer's local `misc/` notes. Pick it up when there are users; until then the README keeps the raw GitHub install line.
 
+## 0.7.0: hook compatibility (released 2026-09-06)
+
+Hooks accept Claude Code's nested `hookSpecificOutput` decisions and match its tool names (`Bash`, `Write`, `Edit`, ...), so a `hooks.json` and its scripts written for Claude Code work with scoot unchanged; `tool_alias` in payloads; `cost` in headless `turn_end` and `--json` output.
+
 ## Later, as configuration rows
 
 - xAI (Grok), Groq, OpenRouter, LM Studio, vLLM: each is a `ProviderSpec` once its Responses or Chat Completions support is checked.
