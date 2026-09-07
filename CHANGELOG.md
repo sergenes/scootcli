@@ -4,7 +4,7 @@ All notable changes to `scoot`. Format loosely follows [Keep a Changelog](https:
 Versions before 0.1.0 were internal builds of the tool's predecessor, renumbered `0.0.N` here and trimmed to what still describes the public tool.
 What comes next lives in [`ROADMAP.md`](./ROADMAP.md); the behaviour spec in [`SPEC.md`](./SPEC.md); design notes in [`DESIGN.md`](./DESIGN.md).
 
-## [Unreleased]
+## [0.8.1] — a model per folder (2026-09-07)
 - **A model per folder.** `/model X` and `scoot --model X` now remember the choice for the folder you are in, so each project can start on its own model; `/model X everywhere` sets the model for every folder without a choice of its own, `/model forget` drops the current folder's choice, `/model` lists both saved layers, and `/status` says where the active model came from (`--model`, `SCOOT_MODEL`, this folder, every folder, or the default). The choice saved by 0.8.0 keeps working as the "every folder" layer; `--root` picks up the target folder's model.
 
 ## [0.8.0] — a remembered --model, and a dock that survives a resize (2026-09-07)
