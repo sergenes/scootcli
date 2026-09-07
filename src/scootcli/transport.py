@@ -13,6 +13,7 @@ instance) skip TLS.
 from __future__ import annotations
 
 import base64
+import codecs
 import http.client
 import json
 import os
@@ -156,6 +157,7 @@ class NativeTransport:
         headers = self._headers(host, auth_token, auth_scheme, body_bytes, extra_headers)
         self._write_request(sock, method, path, headers, body_bytes)
         resp = http.client.HTTPResponse(sock, method=method.upper())
+        holder["resp"] = resp
         resp.begin()
         return resp
 
@@ -186,18 +188,26 @@ class NativeTransport:
 
     @staticmethod
     def _stream_lines(resp, status: int, cancel_event) -> Iterator[str]:
-        """Yield SSE body lines as they arrive, then a trailing ``HTTP_STATUS:<code>`` sentinel."""
+        """Yield SSE body lines as they arrive, then a trailing ``HTTP_STATUS:<code>`` sentinel.
+
+        ``read1`` hands over whatever bytes are already available, so a short event is delivered
+        at once instead of waiting for a full buffer; the incremental decoder keeps a multi-byte
+        character split across two reads intact.
+        """
+        read = getattr(resp, "read1", None) or resp.read
+        decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
         buf = ""
         while True:
             if cancel_event is not None and cancel_event.is_set():
                 raise Interrupted("request cancelled by user")
-            chunk = resp.read(1024)
+            chunk = read(65536)
             if not chunk:
                 break
-            buf += chunk.decode("utf-8", "replace")
+            buf += decoder.decode(chunk)
             while "\n" in buf:
                 line, buf = buf.split("\n", 1)
                 yield line.rstrip("\r")
+        buf += decoder.decode(b"", final=True)
         if buf:
             yield buf.rstrip("\r")
         yield f"{_STATUS_MARKER.strip()}{status}"
@@ -277,19 +287,14 @@ class NativeTransport:
     # ── cancellation ─────────────────────────────────────────────────────────────
     @staticmethod
     def _start_watch(holder: dict, cancel_event, stop: threading.Event):
-        """Close the socket the moment ESC is pressed, unblocking any in-flight recv."""
+        """Shut the connection the moment ESC is pressed, unblocking any in-flight recv."""
         if cancel_event is None:
             return None
 
         def _watch() -> None:
             while not stop.is_set():
                 if cancel_event.is_set():
-                    sock = holder.get("sock")
-                    if sock is not None:
-                        try:
-                            sock.close()
-                        except OSError:
-                            pass
+                    NativeTransport._close(holder)
                     return
                 time.sleep(0.05)
 
@@ -299,10 +304,22 @@ class NativeTransport:
 
     @staticmethod
     def _close(holder: dict) -> None:
+        """Shut down, then close. ``close()`` alone does not wake a thread blocked in ``recv`` while
+        the response's file object still holds the socket; ``shutdown`` does, on every platform."""
         sock = holder.get("sock")
         if sock is not None:
             try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            try:
                 sock.close()
+            except OSError:
+                pass
+        resp = holder.get("resp")
+        if resp is not None:
+            try:
+                resp.close()
             except OSError:
                 pass
 

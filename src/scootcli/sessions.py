@@ -35,6 +35,35 @@ def new_session_id() -> str:
     return time.strftime("%Y%m%d-%H%M%S") + "-" + os.urandom(2).hex()
 
 
+def complete_tool_results(messages: List[dict]) -> List[dict]:
+    """Return ``messages`` with a result present for every assistant tool call.
+
+    A turn interrupted mid-batch used to leave calls without results; providers reject such a
+    history on the next request. Missing results are filled with a note, in place, right after the
+    results that do exist, so the conversation replays.
+    """
+    out: List[dict] = []
+    i = 0
+    while i < len(messages):
+        m = messages[i]
+        out.append(m)
+        i += 1
+        calls = m.get("tool_calls") if isinstance(m, dict) and m.get("role") == "assistant" else None
+        if not calls:
+            continue
+        answered = set()
+        while i < len(messages) and isinstance(messages[i], dict) and messages[i].get("role") == "tool":
+            answered.add(messages[i].get("tool_call_id"))
+            out.append(messages[i])
+            i += 1
+        for tc in calls:
+            tc_id = tc.get("id", "") if isinstance(tc, dict) else ""
+            if tc_id not in answered:
+                out.append({"role": "tool", "tool_call_id": tc_id,
+                            "content": "no result recorded: the turn was interrupted before this call finished"})
+    return out
+
+
 def _redact_messages(messages: List[dict]) -> List[dict]:
     """Copy messages, masking token-like substrings in string content fields."""
     cleaned: List[dict] = []

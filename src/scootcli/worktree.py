@@ -2,6 +2,10 @@
 
 Creates a throwaway worktree on a fresh ``scoot/<ts>`` branch so the agent can work freely; the
 human then reviews the diff and chooses merge / keep / discard. Falls back gracefully outside git.
+
+Nothing here removes a worktree that still holds work: a commit that fails, or a merge that
+conflicts, leaves the worktree and the branch in place and says so. Forced removal is reserved for
+an explicit ``discard``.
 """
 
 from __future__ import annotations
@@ -10,7 +14,6 @@ import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 
 @dataclass
@@ -19,6 +22,17 @@ class Worktree:
     path: Path
     branch: str
     base_ref: str
+    base_commit: str = ""  # the commit the branch started from; what "has changes" is measured against
+
+
+@dataclass
+class FinishResult:
+    """What ``finish`` did. ``retained`` means the worktree is still there (and the session should
+    stay in it) because something went wrong that the user has to look at."""
+
+    ok: bool
+    message: str
+    retained: bool = False
 
 
 def _git(root: Path, *args: str, check: bool = True) -> "subprocess.CompletedProcess":
@@ -26,6 +40,10 @@ def _git(root: Path, *args: str, check: bool = True) -> "subprocess.CompletedPro
         ["git", "-C", str(root), *args],
         capture_output=True, text=True, check=check,
     )
+
+
+def _err(r: "subprocess.CompletedProcess") -> str:
+    return (r.stderr or r.stdout or "").strip()[:200]
 
 
 def is_git_repo(root: Path) -> bool:
@@ -42,6 +60,11 @@ def current_ref(root: Path) -> str:
     return ref or "HEAD"
 
 
+def _head_commit(root: Path) -> str:
+    r = _git(root, "rev-parse", "HEAD", check=False)
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
 def start(root: Path) -> Worktree:
     """Create an isolated worktree + branch from the current HEAD."""
     ts = time.strftime("%Y%m%d-%H%M%S")
@@ -49,8 +72,9 @@ def start(root: Path) -> Worktree:
     path = root / ".scoot" / f"work-{ts}"
     path.parent.mkdir(parents=True, exist_ok=True)
     base = current_ref(root)
+    base_commit = _head_commit(root)
     _git(root, "worktree", "add", "-b", branch, str(path), "HEAD")
-    return Worktree(original_root=root, path=path, branch=branch, base_ref=base)
+    return Worktree(original_root=root, path=path, branch=branch, base_ref=base, base_commit=base_commit)
 
 
 def diff(wt: Worktree) -> str:
@@ -62,53 +86,78 @@ def diff(wt: Worktree) -> str:
 
 
 def has_changes(wt: Worktree) -> bool:
+    """Uncommitted changes (staged after ``add -A``) in the worktree."""
     _git(wt.path, "add", "-A", check=False)
     r = _git(wt.path, "diff", "--cached", "--quiet", check=False)
     return r.returncode != 0  # non-zero = there are staged changes
 
 
-def _commit_all(wt: Worktree) -> bool:
+def has_commits(wt: Worktree) -> bool:
+    """Commits on the branch beyond the base: work the agent (or a hook) already committed."""
+    head = _head_commit(wt.path)
+    return bool(head) and head != wt.base_commit
+
+
+def _commit_all(wt: Worktree) -> "tuple[str, str]":
+    """Commit everything in the worktree. Returns ``("clean" | "committed" | "failed", detail)``.
+
+    The three outcomes are kept apart on purpose: ``finish`` used to read a failed commit as "no
+    changes" and then remove the worktree, taking the uncommitted files with it.
+    """
     if not has_changes(wt):
-        return False
-    _git(wt.path, "add", "-A", check=False)
+        return "clean", ""
     r = _git(wt.path, "commit", "-m", f"scoot: {wt.branch}", check=False)
-    return r.returncode == 0
+    if r.returncode != 0:
+        return "failed", _err(r) or f"git commit exited {r.returncode}"
+    return "committed", ""
 
 
-def finish(wt: Worktree, action: str) -> str:
-    """Complete the session. ``action`` ∈ {merge, keep, discard}. Returns a status message."""
+def finish(wt: Worktree, action: str) -> FinishResult:
+    """Complete the session. ``action`` ∈ {merge, keep, discard}.
+
+    On any Git failure the worktree is retained and the result says so; nothing is force-removed
+    except by ``discard``.
+    """
     if action == "discard":
-        _git(wt.original_root, "worktree", "remove", "--force", str(wt.path), check=False)
+        r = _git(wt.original_root, "worktree", "remove", "--force", str(wt.path), check=False)
+        if r.returncode != 0:
+            return FinishResult(False, f"could not remove worktree {wt.path}: {_err(r)}", retained=True)
         _git(wt.original_root, "branch", "-D", wt.branch, check=False)
-        return f"discarded worktree and branch {wt.branch}."
+        return FinishResult(True, f"discarded worktree and branch {wt.branch}.")
 
-    committed = _commit_all(wt)
+    state, detail = _commit_all(wt)
+    if state == "failed":
+        return FinishResult(False, f"commit failed, worktree kept at {wt.path}: {detail}", retained=True)
+    ahead = has_commits(wt)
 
     if action == "keep":
-        _cleanup_dir(wt)
-        return (f"kept branch {wt.branch} for manual review (git checkout {wt.branch})."
-                if committed else "no changes; nothing to keep.")
+        if not ahead:
+            return _remove_empty(wt, "no changes; nothing to keep.")
+        r = _git(wt.original_root, "worktree", "remove", str(wt.path), check=False)
+        if r.returncode != 0:
+            return FinishResult(False, f"branch {wt.branch} is committed but the worktree could not be "
+                                       f"removed: {_err(r)}", retained=True)
+        return FinishResult(True, f"kept branch {wt.branch} for manual review (git checkout {wt.branch}).")
 
     # action == "merge"
-    if not committed:
-        _cleanup_dir(wt)
-        return "no changes to merge."
+    if not ahead:
+        return _remove_empty(wt, "no changes to merge.")
     r = _git(wt.original_root, "merge", "--no-edit", wt.branch, check=False)
     if r.returncode != 0:
-        return (f"merge conflict — resolve manually: `git merge {wt.branch}` "
-                f"(worktree kept). {r.stderr.strip()[:200]}")
-    _cleanup_dir(wt)
+        return FinishResult(False, f"merge failed, worktree kept: resolve with `git merge {wt.branch}` "
+                                   f"in {wt.original_root}. {_err(r)}", retained=True)
+    r = _git(wt.original_root, "worktree", "remove", str(wt.path), check=False)
+    if r.returncode != 0:
+        return FinishResult(True, f"merged {wt.branch} into {wt.base_ref}, but the worktree at {wt.path} "
+                                  f"could not be removed: {_err(r)}")
     _git(wt.original_root, "branch", "-d", wt.branch, check=False)
-    return f"merged {wt.branch} into {wt.base_ref}."
+    return FinishResult(True, f"merged {wt.branch} into {wt.base_ref}.")
 
 
-def _cleanup_dir(wt: Worktree) -> None:
-    _git(wt.original_root, "worktree", "remove", "--force", str(wt.path), check=False)
-
-
-def cleanup(wt: Optional[Worktree]) -> None:
-    """Best-effort removal of the worktree dir (branch retained). For crash/exit safety."""
-    if wt is None:
-        return
-    _cleanup_dir(wt)
-
+def _remove_empty(wt: Worktree, message: str) -> FinishResult:
+    """Drop a worktree and branch that hold nothing beyond the base commit."""
+    r = _git(wt.original_root, "worktree", "remove", str(wt.path), check=False)
+    if r.returncode != 0:
+        return FinishResult(False, f"could not remove worktree {wt.path}: {_err(r)}", retained=True)
+    _git(wt.original_root, "branch", "-d", wt.branch, check=False)
+    return FinishResult(True, message)

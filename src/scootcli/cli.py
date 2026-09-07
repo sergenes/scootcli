@@ -210,6 +210,8 @@ def _run_once(config: Config, pool: ProviderPool, prompt: str, as_json: bool, re
                          f"completion={u.get('completion_tokens', '?')} "
                          f"cost={fmt(session.session_cost())}", "gray"))
         return 0
+    if outcome.status == "incomplete" and outcome.content.strip() and not outcome.streamed:
+        print(outcome.content.strip())
     eprint(color(f"⚠ {redact(outcome.error or outcome.status)}", "red"))
     return 1
 

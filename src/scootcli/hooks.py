@@ -24,7 +24,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import subprocess
 import threading
 import time
 from dataclasses import dataclass, field
@@ -186,29 +185,36 @@ class Hooks:
         return Decision(context="\n".join(context))
 
     def _run_command(self, event: str, command: str, payload: dict, timeout: int, cancel_event) -> Decision:
+        from .errors import Interrupted
+        from .tools.base import ToolError, run_subprocess
+
         env = dict(os.environ)
         env["SCOOT_SESSION_ID"] = str(payload.get("session_id", ""))
         env["SCOOT_HOOK_EVENT"] = event
         started = time.time()
         try:
-            proc = subprocess.run(
-                command, shell=True, cwd=str(self.root), env=env, input=json.dumps(payload),
-                capture_output=True, text=True, timeout=timeout,
+            # The same runner as the tools: its own process group, bounded waits, ESC honoured.
+            returncode, stdout, stderr = run_subprocess(
+                ["/bin/sh", "-c", command], self.root, cancel_event, timeout=timeout, env=env,
+                input_text=json.dumps(payload),
             )
-        except subprocess.TimeoutExpired:
+        except ToolError:
             self._record(event, command, "timeout", f"after {timeout}s", started)
+            return Decision()
+        except Interrupted:
+            self._record(event, command, "cancelled", "by the user", started)
             return Decision()
         except OSError as exc:
             self._record(event, command, "error", str(exc), started)
             return Decision()
-        out = (proc.stdout or "")[:_MAX_CAPTURE].strip()
-        err = (proc.stderr or "")[:_MAX_CAPTURE].strip()
-        if proc.returncode == 2:
+        out = (stdout or "")[:_MAX_CAPTURE].strip()
+        err = (stderr or "")[:_MAX_CAPTURE].strip()
+        if returncode == 2:
             action = "deny" if event == "PreToolUse" else "block"
             self._record(event, command, action, err, started)
             return Decision(action=action, reason=err or "blocked by hook")
-        if proc.returncode != 0:
-            self._record(event, command, "error", f"exit {proc.returncode}: {err[:200]}", started)
+        if returncode != 0:
+            self._record(event, command, "error", f"exit {returncode}: {err[:200]}", started)
             return Decision()
         if not out:
             self._record(event, command, "ok", "", started)

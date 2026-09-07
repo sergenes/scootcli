@@ -120,23 +120,41 @@ class ReplSession:
             messages=self.messages,
         )
 
+    def switch_root(self, root) -> None:
+        """Move the session to another workspace (entering or leaving a worktree).
+
+        The config root, the file scope, and the hooks move together, so a worktree nested under the
+        original checkout does not keep the original in scope. Paths granted for the old root are
+        dropped rather than carried into the new one.
+        """
+        from .tools.base import Scope
+
+        self.config = self.config.override(root=str(root))
+        self.scope = Scope(self.config.root, everything=(getattr(self.config, "scope", "workspace") == "anywhere"))
+        if getattr(self, "hooks", None) is not None:
+            from .hooks import Hooks
+
+            self.hooks = Hooks(self.config.root)
+
     def apply_record(self, record) -> None:
-        """Load a saved conversation + settings into this live session.
+        """Load a saved conversation into this live session.
 
         The saved model is adopted only when this run set nothing explicit (the preference is still
         the ``default`` alias) and the saved model's provider is configured; an explicit ``--model`` /
         ``SCOOT_MODEL`` / saved preference for this run always wins over what the session recorded.
+        The approval mode is never restored: it is this run's permission policy, and resuming a
+        session that once ran in ``yolo`` must not quietly turn ``--approval always`` into ``yolo``.
         """
+        from .sessions import complete_tool_results
+
         self.id = record.id
         self.created = record.created or self.created
         if self._may_adopt_saved_model(record.model, record.active_model):
             self.model = record.model or self.model
             self.active_model = record.active_model or self.active_model
-        if record.approval_mode in MODES:
-            self.approval_mode = record.approval_mode
         self.total_prompt = record.total_prompt
         self.total_completion = record.total_completion
-        self.messages = list(record.messages)
+        self.messages = complete_tool_results(list(record.messages))
         self.resumed = True
 
     def refresh_readiness(self) -> bool:
@@ -967,6 +985,14 @@ class Repl:
                     f"[{session.resolved_model()}] steps={outcome.steps} "
                     f"prompt={u.get('prompt_tokens', '?')} "
                     f"completion={u.get('completion_tokens', '?')}", "gray"))
+        elif outcome.status == "incomplete":
+            partial = outcome.content.strip()
+            session.last_output = partial
+            if partial and not outcome.streamed:
+                if self.labels and sys.stdout.isatty():
+                    print(_assistant_label(self.ui.emoji))
+                print(partial)
+            print(color(f"⚠ reply cut off: {outcome.error}. ask it to continue, or split the task.", "yellow"))
         elif outcome.status == "interrupted":
             print(color("⏹ interrupted", "yellow"))
         elif outcome.status == "aborted":

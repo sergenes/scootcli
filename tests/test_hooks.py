@@ -273,3 +273,27 @@ def test_matcher_matches_claude_code_tool_names(tmp_path):
     h = _hooks(tmp_path, {"PreToolUse": [{"matcher": "Bash", "hooks": [{"command": deny}]}]})
     assert h.run("PreToolUse", {"tool_name": "run_shell"}).action == "deny"
     assert h.run("PreToolUse", {"tool_name": "read_file"}).action == ""
+
+
+# ── 0.9.0: a hook honours ESC and cannot outlive its timeout (review R10) ────────
+def test_hook_is_cancelled_by_the_cancel_event(tmp_path):
+    import threading
+    import time
+
+    h = _hooks(tmp_path, {"Stop": [{"hooks": [{"command": "sleep 5", "timeout": 30}]}]})
+    cancel = threading.Event()
+    threading.Timer(0.2, cancel.set).start()
+    started = time.monotonic()
+    decision = h.run("Stop", {"session_id": "s"}, cancel)
+    assert time.monotonic() - started < 3
+    assert decision.action == "" and h.history[-1].outcome == "cancelled"
+
+
+def test_hook_timeout_is_bounded_even_with_a_lingering_child(tmp_path):
+    import time
+
+    h = _hooks(tmp_path, {"Stop": [{"hooks": [{"command": "(sleep 5) & wait", "timeout": 1}]}]})
+    started = time.monotonic()
+    decision = h.run("Stop", {"session_id": "s"})
+    assert time.monotonic() - started < 4
+    assert decision.action == "" and h.history[-1].outcome == "timeout"

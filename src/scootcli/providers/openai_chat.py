@@ -137,6 +137,8 @@ class OpenAIChatProvider(BaseProvider):
             if text:
                 on_delta(text)
         finish_stream(holder, leftovers, self.name)
+        if not acc.finish_reason and not holder.get("done"):
+            acc.finish_reason = "incomplete"  # neither a finish_reason nor [DONE]: the stream broke off
         result = acc.result(req.model)
         result.model = self.qualified(result.model)
         return result

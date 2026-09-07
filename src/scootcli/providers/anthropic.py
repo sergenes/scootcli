@@ -36,6 +36,7 @@ from .base import (
     ChatRequest,
     ChatResult,
     decode_json,
+    STREAM_ENDED,
     finish_stream,
     iter_sse_json,
     normalize_usage,
@@ -184,7 +185,7 @@ def translate_tool(tool: dict) -> dict:
 
 # ── response parsing ────────────────────────────────────────────────────────────
 _STOP = {"end_turn": "stop", "tool_use": "tool_calls", "max_tokens": "length", "stop_sequence": "stop",
-         "pause_turn": "stop", "refusal": "refusal"}
+         "pause_turn": "stop", "refusal": "refusal", STREAM_ENDED: "incomplete"}
 
 
 def total_input_usage(usage: Optional[dict]) -> dict:
@@ -213,7 +214,9 @@ def build_result(blocks: List[dict], model: str, usage: Optional[dict], stop_rea
                    "function": {"name": b.get("name", ""), "arguments": json.dumps(b.get("input") or {})}}
                   for b in blocks if b.get("type") == "tool_use"]
     content = streamed_text or "".join(texts)
-    finish = "tool_calls" if tool_calls else _STOP.get(stop_reason, "stop")
+    finish = _STOP.get(stop_reason, "stop")
+    if finish not in ("length", "incomplete") and tool_calls:
+        finish = "tool_calls"
     message: dict = {"role": "assistant", "content": content}
     if tool_calls:
         message["tool_calls"] = tool_calls
@@ -351,4 +354,5 @@ class AnthropicProvider(BaseProvider):
             raise_for_status(400, json.dumps({"error": state.error}), self.name)
             raise ApiError(str(state.error))
         return build_result(state.ordered_blocks(), self.qualified(state.model or req.model), state.usage,
-                            state.stop_reason, state.stop_details, streamed_text="".join(state.text))
+                            state.stop_reason or STREAM_ENDED, state.stop_details,
+                            streamed_text="".join(state.text))

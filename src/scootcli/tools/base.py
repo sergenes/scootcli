@@ -8,8 +8,11 @@ agent loop can feed errors back to the model instead of crashing (PLAN §8).
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
+import tempfile
 import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
@@ -183,6 +186,69 @@ def safe_path(root: Path, raw: str, scope: "Optional[Scope]" = None) -> Path:
     raise exc
 
 
+# ── Safe file writes ───────────────────────────────────────────────────────────
+class FileChangedError(ToolError):
+    """The destination changed on disk between the read that planned a write and the write itself."""
+
+
+def read_text_strict(path: Path) -> str:
+    """The file's text, decoded as UTF-8 with no byte replaced; newlines are left exactly as stored.
+
+    Raises :class:`ToolError` when the file is not UTF-8 text, so an edit never silently rewrites
+    unrelated bytes it could not represent.
+    """
+    try:
+        return path.read_bytes().decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise ToolError(f"{path.name} is not UTF-8 text (byte {exc.start}); refusing to rewrite it") from exc
+
+
+def dominant_newline(text: str) -> str:
+    """``"\r\n"`` when most line breaks in ``text`` are CRLF, else ``"\n"``."""
+    crlf = text.count("\r\n")
+    lf = text.count("\n") - crlf
+    return "\r\n" if crlf > lf else "\n"
+
+
+def atomic_write_bytes(path: Path, data: bytes, expect_stat=None) -> None:
+    """Replace ``path`` with ``data`` atomically: a sibling temp file, fsync, then ``os.replace``.
+
+    The old file is never truncated in place, so an interrupted or failed write leaves it intact.
+    An existing file's permission bits are preserved. ``expect_stat`` (an earlier ``os.stat`` of the
+    destination) makes the replacement conditional: if the file changed since, :class:`FileChangedError`
+    is raised and nothing is written over the newer content.
+    """
+    path = Path(path)
+    mode = None
+    try:
+        mode = path.stat().st_mode & 0o7777
+    except FileNotFoundError:
+        pass
+    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
+        if mode is not None:
+            os.chmod(tmp, mode)
+        if expect_stat is not None:
+            try:
+                now = path.stat()
+            except FileNotFoundError:
+                now = None
+            if now is None or (now.st_mtime_ns, now.st_size) != (expect_stat.st_mtime_ns, expect_stat.st_size):
+                raise FileChangedError(f"{path.name} changed on disk while the edit was being prepared; re-read it")
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
+
+
 # ── Truncation ─────────────────────────────────────────────────────────────────
 def truncate(text: str, max_chars: int = MAX_OUTPUT_CHARS, max_lines: int = MAX_OUTPUT_LINES) -> str:
     """Bound text by lines and chars, appending a clear truncation notice when cut."""
@@ -200,45 +266,82 @@ def truncate(text: str, max_chars: int = MAX_OUTPUT_CHARS, max_lines: int = MAX_
     return out
 
 
-# ── Interruptible subprocess (shared by run_shell + ripgrep search) ────────────
+# ── Interruptible subprocess (shared by run_shell, ripgrep search, and hooks) ──
+_KILL_GRACE = 2.0  # seconds a process group gets after SIGTERM before SIGKILL
+
+
 def run_subprocess(
     cmd: list,
     cwd: Path,
     cancel_event: Optional[threading.Event] = None,
     timeout: int = DEFAULT_SHELL_TIMEOUT,
     env: Optional[dict] = None,
+    input_text: Optional[str] = None,
 ) -> "tuple[int, str, str]":
     """Run ``cmd`` returning ``(returncode, stdout, stderr)``.
 
-    Honors ``cancel_event`` (ESC) by terminating the process, and enforces ``timeout``.
-    stdin is closed (``DEVNULL``) so a child can't wedge waiting for interactive input.
+    Honors ``cancel_event`` (ESC) and enforces ``timeout`` against a monotonic deadline. On POSIX the
+    child starts its own session, so cancellation and timeouts signal the whole process group: a
+    descendant that inherited the output pipes cannot keep the call blocked after the shell is gone.
+    Every wait after a kill is bounded; a process that escapes its group is abandoned, not waited on.
+    stdin is ``input_text`` when given, else closed (``DEVNULL``) so a child can't wedge on a prompt.
     """
-    import time
-
+    posix = os.name == "posix"
     proc = subprocess.Popen(
         cmd,
         cwd=str(cwd),
-        stdin=subprocess.DEVNULL,
+        stdin=subprocess.PIPE if input_text is not None else subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
         env=env,
+        start_new_session=posix,
     )
-    deadline = time.time() + timeout
+    deadline = time.monotonic() + timeout
+    pending_input = input_text
     while True:
         try:
-            stdout, stderr = proc.communicate(timeout=0.1)
+            stdout, stderr = proc.communicate(input=pending_input, timeout=0.1)
             return proc.returncode, stdout, stderr
         except subprocess.TimeoutExpired:
+            pending_input = None  # communicate() keeps the input it already started sending
             if cancel_event is not None and cancel_event.is_set():
-                proc.terminate()
-                try:
-                    proc.communicate(timeout=2)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
+                _stop_process(proc, posix)
                 raise Interrupted("tool cancelled by user")
-            if time.time() > deadline:
-                proc.kill()
-                proc.communicate()
+            if time.monotonic() > deadline:
+                _stop_process(proc, posix, force=True)
                 raise ToolError(f"command timed out after {timeout}s")
 
+
+def _signal_group(proc: "subprocess.Popen", sig, posix: bool) -> None:
+    try:
+        if posix:
+            os.killpg(proc.pid, sig)
+        elif sig == signal.SIGTERM:
+            proc.terminate()
+        else:
+            proc.kill()
+    except (ProcessLookupError, PermissionError, OSError):
+        pass
+
+
+def _stop_process(proc: "subprocess.Popen", posix: bool, force: bool = False) -> None:
+    """Terminate ``proc`` and its process group, escalate to SIGKILL, and never wait unbounded."""
+    if not force:
+        _signal_group(proc, signal.SIGTERM, posix)
+        try:
+            proc.communicate(timeout=_KILL_GRACE)
+            return
+        except subprocess.TimeoutExpired:
+            pass
+    _signal_group(proc, signal.SIGKILL if posix else signal.SIGTERM, posix)
+    try:
+        proc.communicate(timeout=_KILL_GRACE)
+    except subprocess.TimeoutExpired:
+        # Something outside the group still holds the pipes; drop them rather than hang the UI.
+        for stream in (proc.stdout, proc.stderr, proc.stdin):
+            try:
+                if stream is not None:
+                    stream.close()
+            except OSError:
+                pass

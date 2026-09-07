@@ -302,6 +302,8 @@ class Headless:
                 self.writer.emit("notice", message=f"reached the step limit ({self.session.config.max_steps}); send another prompt to continue")
             if outcome.status == "error":
                 self.writer.emit("error", message=outcome.error, kind="turn")
+            if outcome.status == "incomplete":
+                self.writer.emit("notice", message=f"reply cut off: {outcome.error}; the content is partial")
             self.writer.emit("turn_end", turn=self._turn, status=outcome.status, steps=outcome.steps,
                              model=self.session.active_model, usage=self.session.last_usage,
                              cost=self._turn_cost(before), cost_session=self._session_cost(),

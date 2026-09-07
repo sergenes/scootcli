@@ -380,20 +380,34 @@ def iter_sse_json(lines: Iterator[str], status_holder: dict, leftovers: List[str
             status_holder["saw_data"] = True
             data = stripped[len("data:"):].strip()
             if data == "[DONE]":
+                status_holder["done"] = True
                 continue
             try:
                 yield json.loads(data)
             except json.JSONDecodeError:
+                # Counted, not skipped: a dropped event means lost text or a broken tool call.
+                status_holder["malformed"] = status_holder.get("malformed", 0) + 1
                 continue
         else:
             leftovers.append(line)
 
 
 def finish_stream(status_holder: dict, leftovers: List[str], provider: str) -> None:
-    """After a stream ends: raise the typed error for a non-200 status or a plain error body."""
+    """After a stream ends: raise the typed error for a non-200 status or a plain error body, for
+    a 200 that carried no events at all, and for events that could not be parsed."""
     status = status_holder.get("status", 200)
     if status != 200 or (not status_holder.get("saw_data") and leftovers):
         body = "".join(leftovers).strip()
         raise_for_status(status if status != 200 else 400, body, provider)
         if body:
             raise ApiError(body[:200], status=status)
+    if not status_holder.get("saw_data"):
+        raise ApiError(f"{provider} returned an empty stream (no events before the connection closed)",
+                       status=status, hint="a proxy or the endpoint closed the connection early; try again")
+    malformed = status_holder.get("malformed", 0)
+    if malformed:
+        raise ApiError(f"{provider} sent {malformed} unreadable stream event(s); the reply is not complete",
+                       status=status, hint="try again; if it repeats, check the proxy or the endpoint")
+
+
+STREAM_ENDED = "stream_ended"  # an adapter's stop marker when the stream closed before its terminal event

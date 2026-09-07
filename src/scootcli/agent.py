@@ -27,11 +27,18 @@ from .tools.base import ToolContext, ToolResult
 
 @dataclass
 class AgentOutcome:
-    status: str  # "done" | "interrupted" | "aborted" | "max_steps" | "error"
+    status: str  # "done" | "incomplete" | "interrupted" | "aborted" | "max_steps" | "error"
     content: str = ""
     error: str = ""
     steps: int = 0
     streamed: bool = False  # True if the final content was already printed live (streaming)
+
+
+# finish reasons that mean the reply is not the model's whole answer, and what to tell the user.
+_CUT_OFF = {
+    "length": "the model hit its output limit",
+    "incomplete": "the stream ended before the reply was complete",
+}
 
 
 def _strip_done(text: str) -> str:
@@ -104,6 +111,7 @@ class Agent:
         steps = 0
         compacted = False
         stop_blocks = 0
+        cut_off = 0  # tool batches the model could not finish (output limit); bounded retries
         while True:
             if cancel_event.is_set():
                 return AgentOutcome("interrupted", steps=steps)
@@ -145,14 +153,28 @@ class Agent:
             if result.tool_calls:
                 if (result.content or "").strip() and not streamed:
                     ui.assistant(result.content.strip())
+                if result.finish_reason in _CUT_OFF:
+                    # The reply stopped before the calls were complete: their arguments cannot be
+                    # trusted, so nothing runs. Tell the model once or twice, then give up.
+                    cut_off += 1
+                    self._close_batch(session, result.tool_calls,
+                                      "not executed: the reply was cut off before this tool call was "
+                                      "complete; call it again with less in one call")
+                    if cut_off >= 2:
+                        return AgentOutcome("incomplete", steps=steps, error=_CUT_OFF[result.finish_reason])
+                    ui.assistant(f"reply cut off ({_CUT_OFF[result.finish_reason]}); asking the model to retry.")
+                    continue
                 signal = self._run_tools(session, result.tool_calls, ui, cancel_event, cfg)
                 if signal in ("abort", "interrupted"):
                     status = "aborted" if signal == "abort" else "interrupted"
                     return AgentOutcome(status, steps=steps)
                 continue
 
-            # No tool calls -> the model is done, unless a Stop hook asks for more (bounded).
+            # No tool calls -> the model is done, unless it was cut off or a Stop hook asks for more (bounded).
             content = _strip_done(result.content)
+            if result.finish_reason in _CUT_OFF:
+                return AgentOutcome("incomplete", content=content, steps=steps, streamed=streamed,
+                                    error=_CUT_OFF[result.finish_reason])
             if stop_blocks < 3:
                 reason = self._stop_hook(session, content, steps)
                 if reason:
@@ -344,16 +366,48 @@ class Agent:
         )
 
     @staticmethod
-    def _parse_args(raw) -> dict:
+    def _tool_payload(result: ToolResult) -> str:
+        """What the model reads back. On failure the error line comes first, followed by whatever
+        the tool captured: a failing test's or compiler's output is exactly what the model needs
+        next, and ``ERROR: exit 1`` alone only invites a blind rerun."""
+        if result.ok:
+            return result.content or "(no output)"
+        head = f"ERROR: {result.error or 'failed'}"
+        body = (result.content or "").strip()
+        if body.startswith(result.error or "\0"):
+            body = body[len(result.error):].lstrip("\n")
+        return f"{head}\n{body}" if body else head
+
+    @staticmethod
+    def _parse_args(raw) -> Optional[dict]:
+        """The call's arguments as a dict; ``None`` when they are not a JSON object (a truncated or
+        malformed call must not run as if it had no arguments)."""
         if isinstance(raw, dict):
             return raw
         if not raw:
             return {}
         try:
             parsed = json.loads(raw)
-            return parsed if isinstance(parsed, dict) else {}
         except (json.JSONDecodeError, TypeError):
-            return {}
+            return None
+        return parsed if isinstance(parsed, dict) else None
+
+    @staticmethod
+    def _close_batch(session, tool_calls, note: str) -> None:
+        """Give every call in the batch that has no result yet a result saying why.
+
+        Called on abort, interrupt, and cut-off replies: a history with an unanswered tool call is
+        rejected by providers on the next request, so the turn must never leave one behind.
+        """
+        answered = set()
+        for m in reversed(session.messages):
+            if m.get("role") != "tool":
+                break
+            answered.add(m.get("tool_call_id"))
+        for tc in tool_calls:
+            tc_id = tc.get("id", "")
+            if tc_id not in answered:
+                session.messages.append({"role": "tool", "tool_call_id": tc_id, "content": note})
 
     # ── tool execution ───────────────────────────────────────────────────────────
     def _run_tools(self, session, tool_calls, ui, cancel_event, cfg=None) -> Optional[str]:
@@ -379,7 +433,7 @@ class Agent:
                 pass
         for tc in tool_calls:
             if cancel_event.is_set():
-                return "interrupted"
+                return self._interrupted(session, tool_calls)
             tc_id = tc.get("id", "")
             fn = tc.get("function", {}) or {}
             name = fn.get("name", "")
@@ -389,6 +443,11 @@ class Agent:
             if tool is None:
                 self._append_tool(session, tc_id, f"error: unknown tool '{name}'")
                 continue
+            if args is None:
+                self._append_tool(session, tc_id, "error: the arguments are not a JSON object (the call may "
+                                                  "have been cut off); call the tool again")
+                ui.tool_result(name, ToolResult(ok=False, summary="malformed arguments"))
+                continue
 
             # Paths outside the workspace: ask the user once (this path, its directory, or anywhere).
             outside = self._outside_paths(tool, args, ctx)
@@ -396,13 +455,16 @@ class Agent:
                 verdict = self._ask_scope(session, tool, outside, ctx, ui)
                 if verdict == "abort":
                     self._append_tool(session, tc_id, "user aborted the operation")
-                    return "abort"
+                    return self._aborted(session, tool_calls)
                 if verdict == "deny":
                     self._append_tool(session, tc_id, f"user declined access outside the workspace: {outside[0]}")
                     ui.tool_result(name, ToolResult(ok=False, summary="outside the workspace: declined"))
                     continue
             # A PreToolUse hook may deny (skip the tool), allow (skip the prompt), or ask (force it).
             hook_action, hook_reason = self._pre_tool_hook(session, tool, args, cancel_event)
+            if cancel_event.is_set():  # ESC while the hook ran
+                self._append_tool(session, tc_id, "not executed: the user interrupted the turn")
+                return self._interrupted(session, tool_calls)
             if hook_action == "deny":
                 self._append_tool(session, tc_id, f"user declined via hook: {hook_reason or 'no reason given'}")
                 ui.tool_result(name, ToolResult(ok=False, summary=f"denied by hook: {hook_reason}"[:80]))
@@ -423,7 +485,7 @@ class Agent:
                 approval = ui.approve(tool, args, ctx)
                 if approval.decision == Decision.ABORT:
                     self._append_tool(session, tc_id, "user aborted the operation")
-                    return "abort"
+                    return self._aborted(session, tool_calls)
                 if approval.decision == Decision.SKIP:
                     self._append_tool(
                         session, tc_id, "user declined this action; consider another approach"
@@ -442,15 +504,24 @@ class Agent:
                 with ui.activity(f"running {name}…", cancel_event):
                     result = tool.run(args, ctx)
             except Interrupted:
-                return "interrupted"
+                self._append_tool(session, tc_id, "interrupted by the user while running; it may have "
+                                                  "partially completed, check before repeating it")
+                return self._interrupted(session, tool_calls)
             except Exception as exc:  # a tool must never take down the loop
                 result = ToolResult.fail(f"tool crashed: {exc}")
 
             self._handle_result(session, name, result, ui)
             self._post_tool_hook(session, tool, args, result)
-            payload = result.content if result.ok else f"ERROR: {result.error}"
-            self._append_tool(session, tc_id, payload or "(no output)")
+            self._append_tool(session, tc_id, self._tool_payload(result))
         return None
+
+    def _aborted(self, session, tool_calls) -> str:
+        self._close_batch(session, tool_calls, "not executed: the user aborted the turn")
+        return "abort"
+
+    def _interrupted(self, session, tool_calls) -> str:
+        self._close_batch(session, tool_calls, "not executed: the user interrupted the turn")
+        return "interrupted"
 
     @staticmethod
     def _outside_paths(tool, args, ctx) -> "list":

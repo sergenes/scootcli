@@ -156,3 +156,57 @@ def test_proxy_bypass_for_local_and_no_proxy_hosts():
     assert T.proxy_bypassed("api.openai.com", "internal.example, .openai.com")
     assert T.proxy_bypassed("api.openai.com", "openai.com")
     assert not T.proxy_bypassed("api.openai.com", "notopenai.com")
+
+
+# ── 0.9.0: prompt delivery, intact characters, and a cancel that unblocks (R10, R14) ─
+class _Read1Resp:
+    """Like HTTPResponse: ``read1`` returns what is available; ``read(n)`` would block for more."""
+
+    def __init__(self, chunks):
+        self._chunks = list(chunks)
+
+    def read1(self, n):
+        return self._chunks.pop(0) if self._chunks else b""
+
+    def read(self, n):
+        raise AssertionError("read(n) blocks until n bytes arrive; the stream must use read1")
+
+
+def test_stream_lines_uses_available_data_and_keeps_split_utf8():
+    resp = _Read1Resp([b"data: hello\n", b"data: \xe2\x9c", b"\x94 done\n", b"data: caf\xc3", b"\xa9"])
+    lines = list(T.NativeTransport._stream_lines(resp, 200, cancel_event=None))
+    assert lines == ["data: hello", "data: ✔ done", "data: café", "HTTP_STATUS:200"]
+
+
+def test_close_unblocks_a_thread_stuck_in_recv():
+    import socket
+    import threading
+
+    a, b = socket.socketpair()
+    got = []
+
+    def _reader():
+        try:
+            got.append(a.recv(10))
+        except OSError as exc:
+            got.append(exc)
+
+    t = threading.Thread(target=_reader, daemon=True)
+    t.start()
+    import time
+    time.sleep(0.1)
+    T.NativeTransport._close({"sock": a})  # what the ESC watcher calls
+    t.join(timeout=2)
+    assert not t.is_alive(), "recv stayed blocked after the watcher closed the socket"
+    b.close()
+
+
+def test_close_also_closes_the_response():
+    closed = []
+
+    class _Resp:
+        def close(self):
+            closed.append(True)
+
+    T.NativeTransport._close({"resp": _Resp()})
+    assert closed == [True]

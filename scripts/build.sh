@@ -14,9 +14,22 @@ cd "$ROOT"
 mkdir -p dist
 
 echo "→ building single-file zipapp: dist/scoot.pyz"
-python3 -m zipapp src \
-    --main "scootcli.cli:main" \
+# Stage only the package (no __pycache__, .DS_Store, egg-info from a developer checkout) and write
+# our own entry point: zipapp's generated one calls main() without passing its return value to
+# sys.exit, so a handled error would exit 0.
+STAGE="$(mktemp -d)"
+trap 'rm -rf "$STAGE"' EXIT
+python3 - "$STAGE" <<'PY'
+import pathlib, shutil, sys
+
+stage = pathlib.Path(sys.argv[1])
+shutil.copytree("src/scootcli", stage / "scootcli",
+                ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo", ".DS_Store", "*.egg-info"))
+(stage / "__main__.py").write_text("import sys\nfrom scootcli.cli import main\n\nsys.exit(main())\n")
+PY
+python3 -m zipapp "$STAGE" \
     --python "/usr/bin/env python3" \
+    --compress \
     --output dist/scoot.pyz
 chmod +x dist/scoot.pyz
 echo "  done ($(du -h dist/scoot.pyz | cut -f1))"
