@@ -44,6 +44,26 @@ def redact(text: str) -> str:
     return _SECRET_RE.sub("<redacted>", text)
 
 
+# Replay-item fields that must be stored exactly as received: encrypted or signed by the provider,
+# and rejected on the next request if a single byte changes. Never redacted.
+_OPAQUE_KEYS = frozenset({"signature", "encrypted_content", "thinking", "summary", "data"})
+
+
+def redact_value(value, _key: str = ""):
+    """``redact`` applied through dicts and lists: every string leaf is masked, except under the
+    opaque keys above. A message's ``content``, its ``tool_calls[*].function.arguments``, and the text
+    or tool-input copies inside ``provider_items`` all pass through here before a session is saved."""
+    if _key in _OPAQUE_KEYS:
+        return value
+    if isinstance(value, str):
+        return redact(value)
+    if isinstance(value, dict):
+        return {k: redact_value(v, str(k)) for k, v in value.items()}
+    if isinstance(value, list):
+        return [redact_value(v) for v in value]
+    return value
+
+
 def eprint(*args, **kwargs) -> None:
     """Print to stderr."""
     print(*args, file=sys.stderr, **kwargs)

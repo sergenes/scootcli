@@ -380,3 +380,41 @@ def test_run_subprocess_feeds_stdin_text():
 
     rc, out, _err = run_subprocess(["/bin/sh", "-c", "cat"], Path("."), timeout=5, input_text="from stdin")
     assert rc == 0 and out == "from stdin"
+
+
+# ── 0.10.0: the stdlib search cannot read outside the workspace (review R07) ─────
+def test_python_search_skips_symlinks_and_hidden_files():
+    import os
+    from scootcli.tools.search import Search
+
+    tools.load_builtins()
+    with tempfile.TemporaryDirectory() as d:
+        outside = Path(d) / "outside.txt"
+        outside.write_text("MARKER in an external file\n")
+        root = Path(d) / "workspace"
+        root.mkdir()
+        (root / "inside.txt").write_text("MARKER in the workspace\n")
+        (root / ".env").write_text("MARKER=secret\n")
+        (root / ".github").mkdir()
+        (root / ".github" / "ci.yml").write_text("MARKER hidden dir\n")
+        os.symlink(outside, root / "linked.txt")
+        os.symlink(Path(d), root / "linked_dir")
+        matches, _ = Search()._python_search("MARKER", False, None, _ctx(root))
+        assert [m[0] for m in matches] == ["inside.txt"]
+
+
+def test_workspace_map_does_not_follow_symlinks():
+    import os
+    from scootcli.workspace import render_tree
+
+    with tempfile.TemporaryDirectory() as d:
+        elsewhere = Path(d) / "elsewhere"
+        elsewhere.mkdir()
+        (elsewhere / "private-notes.md").write_text("x")
+        root = Path(d) / "workspace"
+        root.mkdir()
+        (root / "real.py").write_text("x")
+        os.symlink(elsewhere, root / "link")
+        os.symlink(elsewhere / "private-notes.md", root / "linked-file.md")
+        tree = render_tree(root)
+        assert "real.py" in tree and "private-notes" not in tree and "link" not in tree

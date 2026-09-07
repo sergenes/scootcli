@@ -135,23 +135,26 @@ class Search(Tool):
         return matches, capped
 
     def _python_search(self, query, is_regex, glob, ctx):
+        """The fallback without ripgrep, walking the way ripgrep does by default: no hidden files or
+        directories (``.env``, ``.git``), no symlinks (a link inside the workspace must not read a file
+        outside it through an auto-approved tool), only regular files."""
         import fnmatch
+        import os
         import re
 
         pattern = re.compile(query) if is_regex else None
         matches = []
         capped = False
-        for path in ctx.root.rglob("*"):
+        for path in _walk_files(ctx.root):
             if len(matches) >= _SCAN_CAP:
                 capped = True
                 break
-            if any(part in _HIDDEN_DIRS for part in path.parts) or not path.is_file():
-                continue
             rel = path.relative_to(ctx.root).as_posix()
             if glob and not fnmatch.fnmatch(rel, glob):
                 continue
             try:
-                if path.stat().st_size > _MAX_FILE_BYTES:
+                st = os.lstat(path)
+                if st.st_size > _MAX_FILE_BYTES:
                     continue
                 text = path.read_text("utf-8", "ignore")
             except (OSError, ValueError):
@@ -164,6 +167,24 @@ class Search(Tool):
                         capped = True
                         break
         return matches, capped
+
+
+def _walk_files(root):
+    """Regular files under ``root``: hidden names and ``_HIDDEN_DIRS`` pruned, symlinks never followed
+    or read (``os.walk`` does not descend into linked directories; linked files are skipped here)."""
+    import os
+    from pathlib import Path
+
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = sorted(d for d in dirnames if not d.startswith(".") and d not in _HIDDEN_DIRS
+                             and not os.path.islink(os.path.join(dirpath, d)))
+        for name in sorted(filenames):
+            if name.startswith("."):
+                continue
+            full = os.path.join(dirpath, name)
+            if os.path.islink(full) or not os.path.isfile(full):
+                continue
+            yield Path(full)
 
 
 register(Search())

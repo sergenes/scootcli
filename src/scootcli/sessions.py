@@ -13,15 +13,26 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
 
 from .config import SESSION_RETENTION, STATE_DIR
-from .rendering import redact
+from .rendering import redact_value
 
 _VERSION = 1
+_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")  # a basename, never a path
+
+
+def valid_id(session_id) -> bool:
+    """Session ids are file basenames: letters, digits, ``-``, ``_``; no separators, dots, or paths.
+
+    Every persistence entry point checks this, so ``/forget ../x`` or a crafted record id cannot
+    reach a file outside the sessions directory.
+    """
+    return isinstance(session_id, str) and bool(_ID_RE.match(session_id))
 
 
 def _sessions_dir() -> Path:
@@ -65,15 +76,10 @@ def complete_tool_results(messages: List[dict]) -> List[dict]:
 
 
 def _redact_messages(messages: List[dict]) -> List[dict]:
-    """Copy messages, masking token-like substrings in string content fields."""
-    cleaned: List[dict] = []
-    for msg in messages:
-        m = dict(msg)
-        content = m.get("content")
-        if isinstance(content, str):
-            m["content"] = redact(content)
-        cleaned.append(m)
-    return cleaned
+    """Copy messages with token-like substrings masked everywhere text is stored: ``content`` (string
+    or parts), tool-call arguments, and the text and tool-input copies inside ``provider_items``.
+    Encrypted or signed replay fields are kept as received (see ``rendering.redact_value``)."""
+    return [redact_value(msg) if isinstance(msg, dict) else msg for msg in messages]
 
 
 @dataclass
@@ -119,22 +125,37 @@ class SessionRecord:
 
     @classmethod
     def from_dict(cls, data: dict) -> "SessionRecord":
+        """Build a record from saved JSON, checking the shape; raises ``ValueError`` on a bad one."""
+        if not isinstance(data, dict) or not valid_id(data.get("id")):
+            raise ValueError("session record without a valid id")
+        if int(data.get("version", _VERSION) or 0) > _VERSION:
+            raise ValueError("session record from a newer scoot")
+        messages = data.get("messages", [])
+        if not isinstance(messages, list) or not all(isinstance(m, dict) for m in messages):
+            raise ValueError("session record with malformed messages")
+
+        def num(key, default=0.0):
+            v = data.get(key, default)
+            return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else default
+
         return cls(
             id=data["id"],
-            root=data.get("root", ""),
-            created=data.get("created", 0.0),
-            updated=data.get("updated", 0.0),
-            model=data.get("model", "auto"),
-            active_model=data.get("active_model", ""),
-            approval_mode=data.get("approval_mode", "always"),
-            total_prompt=int(data.get("total_prompt", 0) or 0),
-            total_completion=int(data.get("total_completion", 0) or 0),
-            messages=data.get("messages", []),
+            root=str(data.get("root", "") or ""),
+            created=num("created"),
+            updated=num("updated"),
+            model=str(data.get("model", "auto") or "auto"),
+            active_model=str(data.get("active_model", "") or ""),
+            approval_mode=str(data.get("approval_mode", "always") or "always"),
+            total_prompt=int(num("total_prompt", 0)),
+            total_completion=int(num("total_completion", 0)),
+            messages=messages,
         )
 
 
 def save(record: SessionRecord) -> Optional[Path]:
     """Persist ``record`` (owner-only), prune old sessions, and return the path (best-effort)."""
+    if not valid_id(record.id):
+        return None
     record.updated = time.time()
     payload = record.to_dict()
     payload["messages"] = _redact_messages(record.messages)
@@ -160,10 +181,12 @@ def save(record: SessionRecord) -> Optional[Path]:
 
 
 def load(session_id: str) -> Optional[SessionRecord]:
+    if not valid_id(session_id):
+        return None
     try:
         data = json.loads((_sessions_dir() / f"{session_id}.json").read_text())
         return SessionRecord.from_dict(data)
-    except (OSError, json.JSONDecodeError, KeyError):
+    except (OSError, ValueError, TypeError):  # JSONDecodeError is a ValueError
         return None
 
 
@@ -178,8 +201,8 @@ def list_sessions(root: Optional[str] = None) -> List[SessionRecord]:
     for f in files:
         try:
             rec = SessionRecord.from_dict(json.loads(f.read_text()))
-        except (OSError, json.JSONDecodeError, KeyError):
-            continue
+        except (OSError, ValueError, TypeError):
+            continue  # one malformed record must not stop the others from loading
         if root is None or rec.root == str(root):
             records.append(rec)
     records.sort(key=lambda r: r.updated, reverse=True)
@@ -192,6 +215,8 @@ def latest_for_root(root: str) -> Optional[SessionRecord]:
 
 
 def delete(session_id: str) -> bool:
+    if not valid_id(session_id):
+        return False
     try:
         (_sessions_dir() / f"{session_id}.json").unlink()
         return True

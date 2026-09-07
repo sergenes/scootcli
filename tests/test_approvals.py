@@ -242,3 +242,14 @@ if __name__ == "__main__":
             passed += 1
     print(f"\n{passed} passed")
 
+
+
+# ── 0.10.0: the denylist recognises the ordinary spellings (review R03) ─────────
+def test_denylist_normalises_spellings():
+    for cmd in ("rm -r -f build", "rm -fr build", "rm -fR build", "rm --recursive --force build",
+                "rm -r --force build", "git -C repo push", "git --git-dir=.git push origin main",
+                "git -c core.x=y push", "cd x && rm -rf y"):
+        assert denylisted_reason(cmd), cmd
+    for cmd in ("rm -f build.log", "rm -r build", "git log | grep push", "grep -rf patterns file",
+                "rm -f a; git -r"):
+        assert denylisted_reason(cmd) is None, cmd

@@ -210,3 +210,67 @@ def test_complete_tool_results_fills_missing_results_in_place():
                      ("user", None), ("assistant", None), ("tool", "c3")]
     assert "interrupted" in fixed[3]["content"]
     assert complete_tool_results(fixed) == fixed  # already complete: unchanged
+
+
+# ── 0.10.0: ids are basenames, bad records are skipped, secrets are masked deep (R13, R17) ─
+def test_session_ids_cannot_leave_the_sessions_directory():
+    d = _fresh_state()
+    sessions_dir = os.path.join(d, "sessions")
+    os.makedirs(sessions_dir, exist_ok=True)
+    sibling = os.path.join(d, "marker.json")
+    with open(sibling, "w") as fh:
+        fh.write("{}")
+    assert sessions.delete("../marker") is False
+    assert os.path.exists(sibling)
+    assert sessions.load("../marker") is None
+    bad = _record()
+    bad.id = "../escape"
+    assert sessions.save(bad) is None
+    assert not os.path.exists(os.path.join(d, "escape.json"))
+    assert sessions.valid_id("20260907-101010-ab12") and not sessions.valid_id("a/b") and not sessions.valid_id("..")
+
+
+def test_malformed_record_does_not_break_listing_or_resume():
+    d = _fresh_state()
+    good = _record()
+    sessions.save(good)
+    sessions_dir = os.path.join(d, "sessions")
+    with open(os.path.join(sessions_dir, "broken.json"), "w") as fh:
+        fh.write('{"id": "broken", "total_prompt": "oops", "messages": "not a list"}')
+    with open(os.path.join(sessions_dir, "noid.json"), "w") as fh:
+        fh.write('{"messages": []}')
+    listed = sessions.list_sessions()
+    assert [r.id for r in listed] == [good.id]
+    assert sessions.latest_for_root(good.root).id == good.id
+    assert sessions.load("broken") is None
+
+
+def test_redaction_reaches_tool_arguments_and_replay_text_but_not_signatures():
+    _fresh_state()
+    token = "sk-live-ABCDEFGHIJKLMNOP1234"
+    rec = _record(msgs=[
+        {"role": "assistant", "content": f"key {token}",
+         "tool_calls": [{"id": "c1", "type": "function",
+                         "function": {"name": "write_file", "arguments": '{"path": "a", "content": "%s"}' % token}}],
+         "provider_items": {"model": "m", "items": [
+             {"type": "message", "content": [{"type": "output_text", "text": f"copy {token}"}]},
+             {"type": "function_call", "arguments": '{"content": "%s"}' % token},
+             {"type": "thinking", "thinking": f"looks like {token}", "signature": "eyJhbGciOiJIUzI1NiJ9.sigsigsigsigsig"},
+         ]}},
+        {"role": "user", "content": [{"type": "text", "text": f"here: {token}"}]},
+    ])
+    path = sessions.save(rec)
+    raw = open(path).read()
+    saved = sessions.load(rec.id).messages
+    # Masked everywhere ordinary text is stored ...
+    assert saved[0]["content"] == "key <redacted>"
+    assert "<redacted>" in saved[0]["tool_calls"][0]["function"]["arguments"]
+    items = saved[0]["provider_items"]["items"]
+    assert items[0]["content"][0]["text"] == "copy <redacted>"
+    assert "<redacted>" in items[1]["arguments"]
+    assert saved[1]["content"][0]["text"] == "here: <redacted>"
+    # ... and only there: signed thinking text and its signature are stored as received, because a
+    # changed byte makes the provider reject the replay.
+    assert items[2]["thinking"] == f"looks like {token}"
+    assert items[2]["signature"] == "eyJhbGciOiJIUzI1NiJ9.sigsigsigsigsig"
+    assert raw.count(token) == 1
