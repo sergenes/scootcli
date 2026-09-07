@@ -49,6 +49,7 @@ The status bar, the input dock, and the mascot are off.
 - An unanswered request is denied after `SCOOT_APPROVAL_TIMEOUT` seconds (default 120) with a `notice`; the model sees a declined tool result and continues.
 - Reaching `SCOOT_MAX_STEPS` emits a `notice` and a `turn_end` with `status: max_steps`; the caller decides whether to send another prompt.
 - A `UserPromptSubmit` hook that blocks the prompt ends the turn at once with `status: blocked`.
+- Before `ready`, a `notice` is emitted for an untrusted project hooks file (send `{"type": "command", "name": "hooks", "args": "trust"}` after reviewing it) and for project `.env` keys that were ignored because only the user may set them.
 - A reply the model could not finish (output limit, or a stream that closed early) emits a `notice` and a `turn_end` with `status: incomplete`; `content` holds the partial text and `error` says why.
 - When no provider is ready (no key, local server down) the process emits one `error` with `kind: setup` and exits 1.
 - Output is never coloured and contains no ANSI sequences.

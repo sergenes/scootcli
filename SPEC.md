@@ -51,6 +51,8 @@ Readiness is checked for the provider of the active model, at start and again af
 4.1 Precedence, highest first: CLI flag, environment variable, project `.env`, global `~/.config/scoot/.env`, default.
 4.2 The project `.env` is the nearest `.env` found walking up from the current directory; the global file honours `XDG_CONFIG_HOME`.
 4.3 Only keys named `SCOOT_*`, the providers' key variables, and `HTTPS_PROXY` / `NO_PROXY` are imported from a `.env` file; other keys are ignored.
+4.3a The project `.env` gets a narrower allowlist than the global one: it may not set `SCOOT_<PROVIDER>_BASE_URL`, `HTTPS_PROXY` / `NO_PROXY`, `SCOOT_APPROVAL`, `SCOOT_SCOPE`, `SCOOT_ROOT`, `SCOOT_HOOKS`, `SCOOT_CONFIG_DIR`, or `SCOOT_STATE_DIR`.
+A project value for one of them is ignored and named in a notice at start (`Config.ignored_project_keys`), so a cloned repository cannot redirect an authenticated request, run code, widen what the tools may touch, or move scoot's files.
 4.4 `.env` lines may carry an `export` prefix and single or double quotes; a variable already set in the environment is never overridden.
 4.5 `/status` shows which `.env` files were read.
 4.6 Settings and their variables: provider `SCOOT_PROVIDER`, model `SCOOT_MODEL`, effort `SCOOT_EFFORT`, approval `SCOOT_APPROVAL`, steps `SCOOT_MAX_STEPS`, compaction threshold `SCOOT_COMPACT_AT`, timeout `SCOOT_TIMEOUT`, root `SCOOT_ROOT`, streaming `SCOOT_STREAM`, panel `SCOOT_PANEL`, dock `SCOOT_DOCK`, resume policy `SCOOT_RESUME`, workspace map `SCOOT_WORKSPACE_CONTEXT`, labels `SCOOT_LABELS`, verbosity `SCOOT_VERBOSITY`, images `SCOOT_IMAGES`, vision model `SCOOT_VISION_MODEL`, image size cap `SCOOT_IMAGE_MAX_BYTES`, logo `SCOOT_LOGO`, emoji label `SCOOT_EMOJI`, state directory `SCOOT_STATE_DIR`, config directory `SCOOT_CONFIG_DIR`.
@@ -82,7 +84,7 @@ A path outside it is not rejected: before the tool runs, the user is asked once,
 `SCOOT_SCOPE=anywhere`, `--scope anywhere`, `/scope anywhere`, and `--yes` skip the question; `/scope workspace` revokes.
 A declined access is fed back to the model as `user declined access outside the workspace: <path>`.
 The system prompt tells the model that the workspace is its home, not a wall, so it uses absolute paths elsewhere instead of refusing or handing the user a script.
-6.3 `search` groups matches per file with bounded output; `edit_file` applies an exact replacement and reports a diff; `write_file` reports the diff against any existing content.
+6.3 `search` groups matches per file with bounded output, and without ripgrep walks the way ripgrep does by default: hidden files and directories, symlinks, and non-regular files are skipped, so a link inside the workspace cannot read a file outside it; the workspace map (5.7) skips symlinks the same way; `edit_file` applies an exact replacement and reports a diff; `write_file` reports the diff against any existing content.
 `write_file` requires `content`: an explicit empty string writes an empty file, a missing one is an error, never an emptied file.
 `edit_file` refuses a file that is not UTF-8 text rather than replace bytes it cannot represent, matches on LF-normalised text so a CRLF file can be quoted with plain newlines, and writes the file's own line endings back.
 Both write through a temporary sibling file and an atomic rename that preserves the file's mode, so a failed or interrupted write leaves the old file intact; an edit is refused when the file changed after it was read.
@@ -96,7 +98,8 @@ Both write through a temporary sibling file and an atomic rename that preserves 
 7.1 Modes: `always` prompts for every call; `auto-read` auto-approves read-only tools; `auto-edits` also auto-approves file writes and edits; `yolo` auto-approves everything.
 The default is `yolo`.
 7.2 At a prompt the choices are approve once, trust this tool for the session, approve everything this session (switches to `yolo`), edit the arguments, skip this call, or abort the turn.
-7.3 Denylisted shell commands are confirmed regardless of mode or trust.
+7.3 Denylisted shell commands are confirmed regardless of mode or trust, and regardless of a hook's `allow`; the patterns cover the ordinary spellings (`rm -r -f`, `--recursive --force`, `git -C repo push`, `git --git-dir=x push`).
+The denylist is an accident guard, not a sandbox: an approved command runs with the user's normal access to files, network, and programs.
 7.4 `--yes` / `-y` runs a one-shot turn with everything auto-approved.
 7.4a The scope question (6.2) is asked in every approval mode, including `yolo`, unless the scope is `anywhere`; hooks receive a `Notification` of kind `scope` when it is asked.
 7.5 `/worktree start` creates a throwaway git worktree on a `scoot/<timestamp>` branch and moves the root, the file scope, and the hooks there, so the original checkout is outside the scope; `/worktree merge` brings the result back, `/worktree keep` leaves the branch for review, `/worktree discard` drops it.
@@ -119,6 +122,8 @@ Each is a drop-in module in `commands/`.
 
 9.1 When the context estimate passes `SCOOT_COMPACT_AT` (default 100000 tokens), or on `/compact`, the conversation is summarized by the model and replaced by the summary.
 9.2 Every turn auto-saves the session to `~/.local/state/scoot/sessions/<id>.json` (mode `0600`), keyed by workspace root, with secrets redacted; the 20 most recent sessions are kept.
+Redaction masks key-shaped strings in message text (string or parts), tool-call arguments, and the text and tool-input copies inside provider replay items; signed or encrypted replay fields (`signature`, `encrypted_content`, `thinking`, `summary`, `data`) are stored as received because the provider rejects a changed byte.
+9.2a A session id is a file basename (letters, digits, `-`, `_`); save, load, list, and delete reject anything else, and a malformed record is skipped when listing without preventing the others from loading.
 9.3 `scoot --continue` resumes the latest session for the directory, `scoot --resume <id>` a specific one; `SCOOT_RESUME` is `auto` (reload the latest on launch, the default), `hint` (show it in the banner), or `off`.
 Resuming restores the conversation and, when this run set no model explicitly, the model; it never restores the approval mode, so `--approval always` stays in force over a session that once ran in `yolo`.
 9.4 `/sessions` lists, `/resume [id]` loads, `/forget <id>|all` deletes.
@@ -147,12 +152,15 @@ Resuming restores the conversation and, when this run set no model explicitly, t
 13.1 Hooks are shell commands run at lifecycle events with a JSON payload on stdin: `SessionStart` (`source`: startup, resume, reset), `UserPromptSubmit` (`prompt`), `PreToolUse` (`tool_name`, `tool_input`, `tool_kind`), `PostToolUse` (plus `tool_response`: `ok`, `summary`, `error`, bounded `content`), `Stop` (`last_assistant_message`, `steps`, `usage`), `Notification` (`kind`: approval, max_steps, error; `message`), `SessionEnd` (`reason`).
 Common fields: `session_id`, `cwd`, `hook_event_name`, `model`, `transcript_path`.
 13.1a Hooks run through the same subprocess runner as the tools: their own process group, a bounded timeout, and cancellation by ESC.
-13.2 Configuration is `hooks.json` in the config directory (global) merged with `.scoot/hooks.json` under the workspace (project first), in the shape `{"Event": [{"matcher": "regex", "hooks": [{"type": "command", "command": "...", "timeout": 60}]}]}`; a top-level `hooks` key wrapping that object is accepted.
+13.2 Configuration is `hooks.json` in the config directory (global) merged with `.scoot/hooks.json` under the workspace (project first, and only after `/hooks trust`; see 13.2a), in the shape `{"Event": [{"matcher": "regex", "hooks": [{"type": "command", "command": "...", "timeout": 60}]}]}`; a top-level `hooks` key wrapping that object is accepted.
 `matcher` applies to `tool_name` for `PreToolUse` and `PostToolUse`, and also to the tool's Claude Code alias (`run_shell` is `Bash`, `write_file` is `Write`, `edit_file` is `Edit`, `read_file` is `Read`, `search` is `Grep`, `list_dir` is `LS`, `update_plan` is `TodoWrite`), so a matcher written for Claude Code fires for scoot's tools; the payload carries the alias as `tool_alias`.
+13.2a A project's hooks file runs only after the user trusted it with `/hooks trust`; the trust is recorded in `preferences.json` as a digest of the file, so an edited file is untrusted again until re-trusted (`/hooks untrust` withdraws it); an untrusted file is named in a notice at start and in `/hooks`.
+13.2b When several hooks answer, a `deny` or `block` wins over an `ask`, and an `ask` over an `allow`; the first answer at the winning level supplies the reason.
+13.2c A hook's environment is the process environment without the providers' API key variables, plus `SCOOT_SESSION_ID` and `SCOOT_HOOK_EVENT`.
 13.3 A hook decides with its exit code or JSON on stdout: exit 0 with empty stdout is no decision; exit 0 with `{"permissionDecision": "allow" | "deny" | "ask"}` (PreToolUse) or `{"decision": "block", "reason": ...}` (UserPromptSubmit, Stop) is that decision; exit 2 blocks or denies with stderr as the reason; plain stdout text is context; any other exit or a timeout is logged and ignored.
 Claude Code's nested form is accepted unchanged: `{"hookSpecificOutput": {"permissionDecision": ..., "permissionDecisionReason": ..., "additionalContext": ...}}`, with `approve` read as `allow`.
 Hooks run sequentially and the first blocking decision wins.
-13.4 Effects: a denied `PreToolUse` skips the tool and feeds `user declined via hook: <reason>` back to the model; `allow` skips scoot's own approval prompt; `ask` forces it even in `yolo`; a blocked `UserPromptSubmit` drops the prompt with the reason shown; context from `UserPromptSubmit` is appended to the prompt; a blocking `Stop` makes the agent continue with the reason as a user message, at most three times per turn.
+13.4 Effects: a denied `PreToolUse` skips the tool and feeds `user declined via hook: <reason>` back to the model; `allow` skips scoot's own approval prompt but not the denylist confirmation (7.3); `ask` forces it even in `yolo`; a blocked `UserPromptSubmit` drops the prompt with the reason shown; context from `UserPromptSubmit` is appended to the prompt; a blocking `Stop` makes the agent continue with the reason as a user message, at most three times per turn.
 13.5 Hooks run with the workspace as working directory and `SCOOT_SESSION_ID` and `SCOOT_HOOK_EVENT` in the environment; they never receive API keys.
 `SCOOT_HOOKS=0` disables all hooks; `/hooks` lists the configuration and recent results, `/hooks reload` re-reads the files.
 13.6 The REPL, one-shot mode, and headless mode fire the same events.
