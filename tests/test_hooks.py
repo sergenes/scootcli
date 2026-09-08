@@ -432,3 +432,80 @@ def test_startup_notices_name_untrusted_hooks_and_ignored_keys(tmp_path):
     s.hooks = H.Hooks(root)
     s.config = s.config.override(ignored_project_keys=())
     assert H.startup_notices(s) == []
+
+
+# ── 0.10.0 follow-up: only a global-config hook's allow waives the denylist ──────
+def _run_denylisted_shell(root, hooks_obj, command, ui_decision):
+    """Drive one turn whose only tool call is a denylisted shell command; return the HeadlessUI so the
+    test can see whether an approval prompt was raised."""
+    from scootcli import tools
+    from scootcli.agent import Agent, HeadlessUI
+    from scootcli.providers import ChatResult
+
+    class _S(_Session):
+        def __init__(self, r):
+            super().__init__(r)
+            self.model = "m"
+            self.approval_mode = "always"
+            self.bad_models = set()
+            self.config = Config().override(root=str(r), stream=False, workspace_context=False)
+
+        def resolved_model(self):
+            return "m"
+
+        def available_models(self):
+            return ["m"]
+
+        def account(self, usage, model=""):
+            pass
+
+    class _Provider:
+        def __init__(self):
+            self.i = 0
+
+        def chat(self, *a, **k):
+            self.i += 1
+            if self.i == 1:
+                return ChatResult(content="", model="m", tool_calls=[{"id": "c1", "type": "function", "function": {
+                    "name": "run_shell", "arguments": json.dumps({"command": command})}}])
+            return ChatResult(content="ok", model="m")
+
+    tools.load_builtins()
+    s = _S(root)
+    s.hooks = hooks_obj
+    ui = HeadlessUI(ui_decision)
+    Agent(s.config, _Provider()).run_turn(s, ui)
+    return ui
+
+
+def test_global_hook_allow_waives_the_denylist(tmp_path, monkeypatch):
+    from scootcli.approvals import Decision
+
+    monkeypatch.setenv("SCOOT_CONFIG_DIR", str(tmp_path / "cfg"))
+    (tmp_path / "cfg").mkdir()
+    allow = _script(tmp_path, "gallow", 'print(json.dumps({"permissionDecision": "allow"}))')
+    (tmp_path / "cfg" / "hooks.json").write_text(json.dumps({"PreToolUse": [{"hooks": [{"command": allow}]}]}))
+    root = tmp_path / "repo"
+    root.mkdir()
+    hooks = H.Hooks(root)  # real reload: the allow is tagged as coming from global config
+    ui = _run_denylisted_shell(root, hooks, "git push", Decision.SKIP)
+    # A global hook stands in for the user's own delegate (a phone bridge), so no terminal prompt.
+    assert not any(e[0] == "approve" and e[1] == "run_shell" for e in ui.events)
+    assert any(e[0] == "auto" and e[1] == "run_shell" for e in ui.events)
+
+
+def test_trusted_project_hook_allow_still_prompts_on_the_denylist(tmp_path, monkeypatch):
+    from scootcli.approvals import Decision
+
+    monkeypatch.setenv("SCOOT_CONFIG_DIR", str(tmp_path / "cfg"))
+    (tmp_path / "cfg").mkdir()
+    root = tmp_path / "repo"
+    (root / ".scoot").mkdir(parents=True)
+    allow = _script(tmp_path, "pallow", 'print(json.dumps({"permissionDecision": "allow"}))')
+    (root / ".scoot" / "hooks.json").write_text(json.dumps({"PreToolUse": [{"hooks": [{"command": allow}]}]}))
+    assert H.trust_project(root)
+    hooks = H.Hooks(root)
+    assert hooks.trust == "trusted" and hooks.has("PreToolUse")
+    ui = _run_denylisted_shell(root, hooks, "git push", Decision.SKIP)
+    # A repo's own hook, even one trusted to run, must not silently auto-run a catastrophic command.
+    assert any(e[0] == "approve" and e[1] == "run_shell" for e in ui.events)

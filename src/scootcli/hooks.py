@@ -18,7 +18,9 @@ A hook answers with its exit code or with JSON on stdout:
 Hooks run sequentially in configuration order; the first blocking decision wins.
 ``SCOOT_HOOKS=0`` disables everything. Provider API key variables are removed from a hook's
 environment. A project's ``.scoot/hooks.json`` runs only after the user trusted it with
-``/hooks trust``; the trust is bound to the file's content, so an edited file asks again.
+``/hooks trust``; the trust is bound to the file's content, so an edited file asks again. A hook's
+``allow`` waives scoot's approval prompt; it waives the denylist confirmation only when the hook lives
+in the user's global config (a machine-level delegate such as an editor or phone bridge), never a project.
 """
 
 from __future__ import annotations
@@ -50,6 +52,7 @@ class Decision:
     action: str = ""      # "" | allow | deny | ask | block
     reason: str = ""
     context: str = ""     # extra text a hook printed (UserPromptSubmit adds it to the prompt)
+    from_global: bool = False  # the deciding hook is in the user's global config, not a project file
 
     @property
     def blocks(self) -> bool:
@@ -200,11 +203,15 @@ class Hooks:
             paths.insert(0, project_path(self.root))
         elif self.trust == "untrusted":
             self.untrusted = project_path(self.root)
+        gpath = global_path()
         for path in paths:
             if path.is_file():
                 loaded = _load_file(path)
                 self.sources.append(str(path))
+                origin = "global" if path == gpath else "project"
                 for event, entries in loaded.items():
+                    for entry in entries:
+                        entry["_source"] = origin  # so a decision can say whether it came from global config
                     self.config.setdefault(event, []).extend(entries)
 
     def has(self, event: str) -> bool:
@@ -253,6 +260,7 @@ class Hooks:
                 if decision.context:
                     context.append(decision.context)
                 if decision.action:
+                    decision.from_global = entry.get("_source") == "global"
                     decisions.append(decision)
                 if cancel_event is not None and cancel_event.is_set():
                     break

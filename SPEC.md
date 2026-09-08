@@ -100,7 +100,7 @@ Both write through a temporary sibling file and an atomic rename that preserves 
 The default is `yolo`.
 7.2 At a prompt the choices are approve once, trust this tool for the session, approve everything this session (switches to `yolo`), edit the arguments, skip this call, or abort the turn.
 The keys are case-insensitive except `A`, which is the session-wide choice (`a` approves once).
-7.3 Denylisted shell commands are confirmed regardless of mode or trust, and regardless of a hook's `allow`; the patterns cover the ordinary spellings (`rm -r -f`, `--recursive --force`, `git -C repo push`, `git --git-dir=x push`).
+7.3 Denylisted shell commands are confirmed regardless of mode or trust, and regardless of a project hook's `allow` (a hook in the user's global config may waive it; see 13.4); the patterns cover the ordinary spellings (`rm -r -f`, `--recursive --force`, `git -C repo push`, `git --git-dir=x push`).
 The denylist is an accident guard, not a sandbox: an approved command runs with the user's normal access to files, network, and programs.
 7.4 `--yes` / `-y` runs a one-shot turn with everything auto-approved.
 7.4a The scope question (6.2) is asked in every approval mode, including `yolo`, unless the scope is `anywhere`; hooks receive a `Notification` of kind `scope` when it is asked.
@@ -162,7 +162,7 @@ Common fields: `session_id`, `cwd`, `hook_event_name`, `model`, `transcript_path
 13.3 A hook decides with its exit code or JSON on stdout: exit 0 with empty stdout is no decision; exit 0 with `{"permissionDecision": "allow" | "deny" | "ask"}` (PreToolUse) or `{"decision": "block", "reason": ...}` (UserPromptSubmit, Stop) is that decision; exit 2 blocks or denies with stderr as the reason; plain stdout text is context; any other exit or a timeout is logged and ignored.
 Claude Code's nested form is accepted unchanged: `{"hookSpecificOutput": {"permissionDecision": ..., "permissionDecisionReason": ..., "additionalContext": ...}}`, with `approve` read as `allow`.
 Hooks run sequentially and the first blocking decision wins.
-13.4 Effects: a denied `PreToolUse` skips the tool and feeds `user declined via hook: <reason>` back to the model; `allow` skips scoot's own approval prompt but not the denylist confirmation (7.3); `ask` forces it even in `yolo`; a blocked `UserPromptSubmit` drops the prompt with the reason shown; context from `UserPromptSubmit` is appended to the prompt; a blocking `Stop` makes the agent continue with the reason as a user message, at most three times per turn.
+13.4 Effects: a denied `PreToolUse` skips the tool and feeds `user declined via hook: <reason>` back to the model; `allow` skips scoot's own approval prompt, and also the denylist confirmation (7.3) only when the hook is in the user's global config, not a project file (so an editor or phone bridge approving on the user's behalf is not blocked, while a repo's hook still cannot silently auto-run a catastrophic command); `ask` forces it even in `yolo`; a blocked `UserPromptSubmit` drops the prompt with the reason shown; context from `UserPromptSubmit` is appended to the prompt; a blocking `Stop` makes the agent continue with the reason as a user message, at most three times per turn.
 13.5 Hooks run with the workspace as working directory and `SCOOT_SESSION_ID` and `SCOOT_HOOK_EVENT` in the environment; they never receive API keys.
 `SCOOT_HOOKS=0` disables all hooks; `/hooks` lists the configuration and recent results, `/hooks reload` re-reads the files.
 13.6 The REPL, one-shot mode, and headless mode fire the same events.
