@@ -115,6 +115,7 @@ A commit or merge that fails keeps the worktree, the branch, and the session in 
 8.2a The spinner shows the elapsed time after three seconds and, after thirty, a reminder that Ctrl-C forces a stop.
 8.3 The bottom status bar shows the mascot face (eyes: `o o` idle, `> >` thinking, `- -` stopped), the provider serving the active model (or `not set up`), folder and session id, model (or `none · run /auth`), approval mode, context size and its share of the compaction threshold, cumulative tokens, message count, worktree branch, plan progress, and the last error.
 8.4 Turns are labelled `❯` for the user and `🛴 scoot` for the assistant (`⏺ scoot` with `--no-emoji`); the assistant label prints once per turn.
+The user's prompt is echoed as a full-width reverse-video band (one band per line), so it reads as distinct from the answer; reverse video adapts to any terminal theme, the band uses the current width so a resize is reflected on the next prompt, and it degrades to a plain `❯`-guttered line without a TTY, under `NO_COLOR`, or with `--no-labels`.
 8.5 `/verbosity full|compact|quiet` controls whether reasoning narration and tool lines stay in the feed.
 8.6 `/c` or Ctrl-S copies the last answer to the clipboard through `pbcopy`, `wl-copy`, `xclip`, `xsel`, or an OSC-52 escape.
 8.7 Slash commands: `/help`, `/exit`, `/reset`, `/save`, `/status`, `/model`, `/init`, `/compact`, `/approve`, `/yolo`, `/worktree`, `/auth`, `/sessions`, `/resume`, `/forget`, `/panel`, `/verbosity`, `/c`, `/logo`.

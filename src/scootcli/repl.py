@@ -51,8 +51,15 @@ def _is_slash_command(line: str) -> bool:
 
 
 def _user_echo(text: str) -> str:
-    """Bolded, colour-guttered echo of a submitted user prompt (dock mode only)."""
-    return color("❯ ", "green", "bold") + color(text, "bold")
+    """A submitted user prompt echoed as a full-width reverse-video band, distinct from the answer.
+
+    The width is read here, so each prompt uses the terminal's current width after a resize.
+    """
+    import shutil
+
+    from .rendering import user_band
+
+    return user_band(text, shutil.get_terminal_size((80, 24)).columns)
 
 
 
