@@ -49,7 +49,7 @@ Readiness is checked for the provider of the active model, at start and again af
 ## 4. Configuration
 
 4.1 Precedence, highest first: CLI flag, environment variable, project `.env`, global `~/.config/scoot/.env`, default.
-4.2 The project `.env` is the nearest `.env` found walking up from the current directory; the global file honours `XDG_CONFIG_HOME`.
+4.2 The project `.env` is the nearest `.env` found walking up from the workspace root (`--root` when given, else the current directory); the global file honours `XDG_CONFIG_HOME`.
 4.3 Only keys named `SCOOT_*`, the providers' key variables, and `HTTPS_PROXY` / `NO_PROXY` are imported from a `.env` file; other keys are ignored.
 4.3a The project `.env` gets a narrower allowlist than the global one: it may not set `SCOOT_<PROVIDER>_BASE_URL`, `HTTPS_PROXY` / `NO_PROXY`, `SCOOT_APPROVAL`, `SCOOT_SCOPE`, `SCOOT_ROOT`, `SCOOT_HOOKS`, `SCOOT_CONFIG_DIR`, or `SCOOT_STATE_DIR`.
 A project value for one of them is ignored and named in a notice at start (`Config.ignored_project_keys`), so a cloned repository cannot redirect an authenticated request, run code, widen what the tools may touch, or move scoot's files.
@@ -88,6 +88,7 @@ The system prompt tells the model that the workspace is its home, not a wall, so
 `write_file` requires `content`: an explicit empty string writes an empty file, a missing one is an error, never an emptied file.
 `edit_file` refuses a file that is not UTF-8 text rather than replace bytes it cannot represent, matches on LF-normalised text so a CRLF file can be quoted with plain newlines, and writes the file's own line endings back.
 Both write through a temporary sibling file and an atomic rename that preserves the file's mode, so a failed or interrupted write leaves the old file intact; an edit is refused when the file changed after it was read.
+6.3a `read_file` reads regular files only (a FIFO or device is refused) and reads at most the cap plus one byte, never the whole file; an image over `SCOOT_IMAGE_MAX_BYTES` is rejected by size before it is read.
 6.4 `run_shell` executes with a timeout and captures bounded output; its child runs in its own process group, which ESC and the timeout terminate as a whole with bounded waits, with stdin closed and pagers and interactive prompts disabled (`GIT_PAGER=cat`, `GIT_TERMINAL_PROMPT=0`, and similar), so a command that would wait for input fails fast instead of hanging; commands matching the denylist (recursive deletes of root paths, force pushes, piping downloads to a shell, disk formatting, and similar) require confirmation in every approval mode.
 6.4a `open_editor` opens a workspace file in an external editor, `idea -e` (IntelliJ LightEdit) by default or VS Code, as a detached process; the editor comes from the call, else `SCOOT_EDITOR`; it is approval-gated like `run_shell` and fails with an install hint when the launcher is missing.
 6.5 `update_plan` records a step checklist that the UI renders and the status bar counts; it never prompts.
@@ -98,6 +99,7 @@ Both write through a temporary sibling file and an atomic rename that preserves 
 7.1 Modes: `always` prompts for every call; `auto-read` auto-approves read-only tools; `auto-edits` also auto-approves file writes and edits; `yolo` auto-approves everything.
 The default is `yolo`.
 7.2 At a prompt the choices are approve once, trust this tool for the session, approve everything this session (switches to `yolo`), edit the arguments, skip this call, or abort the turn.
+The keys are case-insensitive except `A`, which is the session-wide choice (`a` approves once).
 7.3 Denylisted shell commands are confirmed regardless of mode or trust, and regardless of a hook's `allow`; the patterns cover the ordinary spellings (`rm -r -f`, `--recursive --force`, `git -C repo push`, `git --git-dir=x push`).
 The denylist is an accident guard, not a sandbox: an approved command runs with the user's normal access to files, network, and programs.
 7.4 `--yes` / `-y` runs a one-shot turn with everything auto-approved.
@@ -171,5 +173,6 @@ Hooks run sequentially and the first blocking decision wins.
 14.2 Input types: `prompt` (`text`, optional `images`), `approve` (`id`, `decision` among allow, allow_tool, allow_session, deny, abort; optional `args`), `note` (`text`, delivered as a user message at the next model call), `interrupt`, `command` (`name`, `args`), `shutdown`; closing stdin is a shutdown.
 14.3 Output types: `ready`, `turn_start`, `activity`, `text_delta`, `assistant` (`final`), `tool_call`, `approval_request` (`id`, `name`, `args`, `kind`, `preview`, `options`, `timeout_s`), `scope_request` (`id`, `name`, `path`, `options` allow_once, allow_dir, allow_all, deny, abort; answered with `approve`), `tool_result`, `plan`, `turn_end` (`status` among done, incomplete, interrupted, aborted, max_steps, error, blocked; `steps`, `model`, `usage`, `content`, `error`), `notice`, `command_output`, `error` (`kind` among protocol, turn, command, setup), `heartbeat` every 10 seconds, `bye`.
 14.4 Approvals follow the REPL's decision path; an unanswered request is denied after `SCOOT_APPROVAL_TIMEOUT` seconds (default 120).
+An answer must carry the exact `id` of the request it answers; one without an id, or with another request's id, is reported as a protocol error and ignored, so a queued answer can never approve a later request.
 14.5 With no provider ready, headless mode emits one `error` of kind `setup` and exits 1; a bad input line is reported as a `protocol` error and skipped; a slash command's printed output is returned in `command_output`.
 14.6 Sessions, compaction, routing, tools, and hooks behave as in the REPL; the status bar, dock, and mascot are off.

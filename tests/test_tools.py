@@ -418,3 +418,38 @@ def test_workspace_map_does_not_follow_symlinks():
         os.symlink(elsewhere / "private-notes.md", root / "linked-file.md")
         tree = render_tree(root)
         assert "real.py" in tree and "private-notes" not in tree and "link" not in tree
+
+
+# ── 0.10.0: read_file never reads more than the cap, never a FIFO (review R15) ───
+def test_read_file_is_bounded_and_refuses_special_files():
+    import os
+    from scootcli.tools.base import MAX_READ_BYTES
+
+    tools.load_builtins()
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        big = root / "big.log"
+        with open(big, "wb") as fh:
+            fh.seek(3 * MAX_READ_BYTES)  # a sparse 600 KB file; reading it whole would be the bug
+            fh.write(b"end\n")
+        res = tools.get("read_file").run({"path": "big.log"}, _ctx(root))
+        assert res.ok and "truncated" in res.content
+        fifo = root / "pipe"
+        os.mkfifo(fifo)
+        res = tools.get("read_file").run({"path": "pipe"}, _ctx(root))
+        assert not res.ok and "regular file" in res.error
+
+
+def test_image_over_the_cap_is_rejected_before_reading():
+    from scootcli.images import ImageTooLargeError, to_data_uri
+
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / "huge.png"
+        with open(p, "wb") as fh:
+            fh.seek(10 * 1024 * 1024)
+            fh.write(b"\x00")
+        try:
+            to_data_uri(p, max_bytes=1024)
+            assert False, "expected ImageTooLargeError"
+        except ImageTooLargeError as exc:
+            assert "over the 1 KB limit" in str(exc)

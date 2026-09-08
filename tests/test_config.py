@@ -167,3 +167,23 @@ def test_global_env_still_sets_base_url_and_proxy(monkeypatch, tmp_path):
     cfg = config.Config.load()
     assert os.environ["SCOOT_OPENAI_BASE_URL"] == "https://gateway.corp.example/v1"
     assert cfg.proxy == "http://p:1" and cfg.approval == "always" and cfg.ignored_project_keys == ()
+
+
+# ── 0.10.0: --root decides which project .env is read ───────────────────────────
+def test_root_flag_loads_the_target_projects_env(monkeypatch, tmp_path):
+    import argparse
+    from scootcli.cli import _build_parser, _config_from_args
+
+    for k in ("SCOOT_MODEL", "SCOOT_EFFORT"):
+        monkeypatch.delenv(k, raising=False)
+    launch = tmp_path / "launch"
+    target = tmp_path / "target"
+    launch.mkdir()
+    target.mkdir()
+    (launch / ".env").write_text("SCOOT_MODEL=openai/from-launch\n")
+    (target / ".env").write_text("SCOOT_MODEL=openai/from-target\nSCOOT_EFFORT=high\n")
+    monkeypatch.chdir(launch)
+    cfg = _config_from_args(_build_parser().parse_args(["--root", str(target)]))
+    assert cfg.root == target.resolve()
+    assert cfg.model == "openai/from-target" and cfg.effort == "high"
+    assert [os.path.basename(os.path.dirname(f)) for f in cfg.env_files] == ["target"]

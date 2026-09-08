@@ -133,6 +133,14 @@ def _edit_args(args: dict) -> dict:
 SCOPE_CHOICES = ("once", "dir", "all", "deny", "abort")
 
 
+def _menu_key() -> str:
+    """One keypress for the approval menus: ``A`` (the session-wide choice) keeps its case, every other
+    key is lowercased so ``T`` still means trust. ``read_key`` used to lowercase everything, which made
+    the advertised ``[A]`` unreachable."""
+    key = read_key(keep_case=True)
+    return key if key == "A" else key.lower()
+
+
 def request_scope(tool: Tool, path, ctx: ToolContext) -> str:
     """Ask once about a path outside the workspace. Returns one of ``SCOPE_CHOICES``."""
     from pathlib import Path as _P
@@ -150,7 +158,7 @@ def request_scope(tool: Tool, path, ctx: ToolContext) -> str:
             + color("quit", "red") + " [q] › ",
             end="", flush=True,
         )
-        key = read_key()
+        key = _menu_key()
         print(key)
         if key in ("a", "y", "\r", "\n", ""):
             return "once"
@@ -185,7 +193,7 @@ def request_approval(tool: Tool, args: dict, ctx: ToolContext) -> Approval:
             end="",
             flush=True,
         )
-        key = read_key()
+        key = _menu_key()
         print(key)  # echo the choice for a clean transcript
 
         if key in ("a", "y", "\r", "\n", ""):

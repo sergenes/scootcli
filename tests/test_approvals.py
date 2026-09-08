@@ -253,3 +253,23 @@ def test_denylist_normalises_spellings():
     for cmd in ("rm -f build.log", "rm -r build", "git log | grep push", "grep -rf patterns file",
                 "rm -f a; git -r"):
         assert denylisted_reason(cmd) is None, cmd
+
+
+# ── 0.10.0: [A] is reachable (review R20) ───────────────────────────────────────
+def test_menu_key_keeps_only_the_session_wide_A(monkeypatch):
+    from scootcli import approvals
+
+    for typed, expected in (("A", "A"), ("a", "a"), ("T", "t"), ("S", "s"), ("q", "q")):
+        monkeypatch.setattr(approvals, "read_key", lambda keep_case=False, t=typed: t if keep_case else t.lower())
+        assert approvals._menu_key() == expected
+
+
+def test_read_key_keep_case_on_piped_input(monkeypatch):
+    import io
+    import sys
+    from scootcli.keys import read_key
+
+    monkeypatch.setattr(sys, "stdin", io.StringIO("A\n"))
+    assert read_key(keep_case=True) == "A"
+    monkeypatch.setattr(sys, "stdin", io.StringIO("A\n"))
+    assert read_key() == "a"

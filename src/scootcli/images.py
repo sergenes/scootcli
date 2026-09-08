@@ -157,11 +157,12 @@ def _sniff_mime(path: Path, raw: bytes) -> str:
 def to_data_uri(path: Path, max_bytes: int = DEFAULT_MAX_BYTES) -> EncodedImage:
     """Read + base64-encode an image into a ``data:`` URI. Raises :class:`ImageTooLargeError` over cap."""
     path = Path(path)
-    raw = path.read_bytes()
-    if max_bytes and len(raw) > max_bytes:
+    size = path.stat().st_size  # check before reading, so an oversized file is never loaded
+    if max_bytes and size > max_bytes:
         raise ImageTooLargeError(
-            f"{path.name} is {len(raw) // 1024} KB, over the {max_bytes // 1024} KB limit"
+            f"{path.name} is {size // 1024} KB, over the {max_bytes // 1024} KB limit"
         )
+    raw = path.read_bytes()
     mime = _sniff_mime(path, raw)
     b64 = base64.b64encode(raw).decode("ascii")
     return EncodedImage(name=path.name, mime=mime, data_uri=f"data:{mime};base64,{b64}", size=len(raw))

@@ -62,19 +62,21 @@ def query_cursor(timeout: float = 0.2) -> Optional[Tuple[int, int]]:
     return None
 
 
-def read_key() -> str:
-    """Read a single keypress (lowercased). Falls back to a line read on non-TTY (piped) input."""
+def read_key(keep_case: bool = False) -> str:
+    """Read a single keypress, lowercased unless ``keep_case`` (a menu that tells ``a`` from ``A``).
+    Falls back to a line read on non-TTY (piped) input."""
     if not (_HAVE_TERMIOS and sys.stdin.isatty()):
         line = sys.stdin.readline()
-        return (line.strip()[:1].lower() if line.strip() else "q")
-    fd = sys.stdin.fileno()
-    old = termios.tcgetattr(fd)
-    try:
-        tty.setcbreak(fd)
-        ch = sys.stdin.read(1)
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old)
-    return ch.lower()
+        ch = line.strip()[:1] if line.strip() else "q"
+    else:
+        fd = sys.stdin.fileno()
+        old = termios.tcgetattr(fd)
+        try:
+            tty.setcbreak(fd)
+            ch = sys.stdin.read(1)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
+    return ch if keep_case else ch.lower()
 
 
 class InterruptibleSection:

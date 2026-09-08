@@ -15,7 +15,7 @@ The status bar, the input dock, and the mascot are off.
 | type | fields | effect |
 |---|---|---|
 | `prompt` | `text`, optional `images` (list of file paths) | starts a turn; ignored while a turn runs until the turn ends (queued) |
-| `approve` | `id`, `decision`: `allow` \| `allow_tool` \| `allow_session` \| `deny` \| `abort`, optional `args` (edited tool arguments) | answers an `approval_request`; `allow_tool` trusts the tool for the session, `allow_session` switches to `yolo`, `abort` ends the turn |
+| `approve` | `id` (required, the request's id; an answer without it is a protocol error and is ignored), `decision`: `allow` \| `allow_tool` \| `allow_session` \| `deny` \| `abort`, optional `args` (edited tool arguments) | answers an `approval_request`; `allow_tool` trusts the tool for the session, `allow_session` switches to `yolo`, `abort` ends the turn |
 | `note` | `text` | queued and delivered as a user message at the next model call of the running turn (or the next turn) |
 | `interrupt` | | cancels the running turn, like ESC in the REPL; the conversation is kept |
 | `command` | `name`, optional `args` | runs a slash command (`status`, `model`, `compact`, `reset`, `route`, `hooks`, ...); its text output comes back in `command_output`; `exit` shuts down |

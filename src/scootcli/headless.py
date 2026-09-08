@@ -124,8 +124,9 @@ class HeadlessUI:
                 msg = self.answers.get(timeout=min(0.2, remaining))
             except queue.Empty:
                 continue
-            if msg.get("id") not in (None, "", req):
-                self.writer.emit("error", message=f"approval answer for unknown request {msg.get('id')}", kind="protocol")
+            if msg.get("id") != req:  # an unbound answer must never approve whatever comes next
+                self.writer.emit("error", message=f"approval answer must carry id {req!r}, got {msg.get('id')!r}",
+                                 kind="protocol")
                 continue
             decision = _DECISIONS.get(str(msg.get("decision", "")).lower())
             if decision is None:
@@ -153,8 +154,9 @@ class HeadlessUI:
                 msg = self.answers.get(timeout=min(0.2, remaining))
             except queue.Empty:
                 continue
-            if msg.get("id") not in (None, "", req):
-                self.writer.emit("error", message=f"answer for unknown request {msg.get('id')}", kind="protocol")
+            if msg.get("id") != req:
+                self.writer.emit("error", message=f"scope answer must carry id {req!r}, got {msg.get('id')!r}",
+                                 kind="protocol")
                 continue
             verdict = mapping.get(str(msg.get("decision", "")).lower())
             if verdict is None:

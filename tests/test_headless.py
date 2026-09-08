@@ -246,3 +246,31 @@ def test_commands_and_bad_input(tmp_path):
     stdin.send({"type": "command", "name": "exit"})
     out.wait_for("bye")
     t.join(2)
+
+
+# ── 0.10.0: an answer must name its request (review R20) ────────────────────────
+def test_approval_answer_without_id_is_ignored():
+    import queue
+    import threading
+    from scootcli import tools
+    from scootcli.approvals import Decision
+    from scootcli.headless import HeadlessUI
+    from scootcli.tools.base import ToolContext
+
+    tools.load_builtins()
+    out = []
+
+    class _W:
+        def emit(self, type, **fields):
+            out.append({"type": type, **fields})
+
+    ui = HeadlessUI(_W(), queue.Queue(), timeout=1.0)
+    ui.answers.put({"type": "approve", "decision": "allow"})              # no id
+    ui.answers.put({"type": "approve", "id": "", "decision": "allow"})    # empty id
+    ui.answers.put({"type": "approve", "id": "call_other", "decision": "allow"})
+    threading.Timer(0.3, lambda: ui.answers.put({"type": "approve", "id": next(
+        e["id"] for e in out if e["type"] == "approval_request"), "decision": "deny"})).start()
+    approval = ui.approve(tools.get("write_file"), {"path": "x", "content": "y"}, ToolContext(root="."))
+    assert approval.decision == Decision.SKIP
+    errors = [e for e in out if e["type"] == "error"]
+    assert len(errors) == 3 and all("must carry id" in e["message"] for e in errors)
