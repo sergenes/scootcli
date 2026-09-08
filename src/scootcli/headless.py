@@ -124,8 +124,9 @@ class HeadlessUI:
                 msg = self.answers.get(timeout=min(0.2, remaining))
             except queue.Empty:
                 continue
-            if msg.get("id") not in (None, "", req):
-                self.writer.emit("error", message=f"approval answer for unknown request {msg.get('id')}", kind="protocol")
+            if msg.get("id") != req:  # an unbound answer must never approve whatever comes next
+                self.writer.emit("error", message=f"approval answer must carry id {req!r}, got {msg.get('id')!r}",
+                                 kind="protocol")
                 continue
             decision = _DECISIONS.get(str(msg.get("decision", "")).lower())
             if decision is None:
@@ -153,8 +154,9 @@ class HeadlessUI:
                 msg = self.answers.get(timeout=min(0.2, remaining))
             except queue.Empty:
                 continue
-            if msg.get("id") not in (None, "", req):
-                self.writer.emit("error", message=f"answer for unknown request {msg.get('id')}", kind="protocol")
+            if msg.get("id") != req:
+                self.writer.emit("error", message=f"scope answer must carry id {req!r}, got {msg.get('id')!r}",
+                                 kind="protocol")
                 continue
             verdict = mapping.get(str(msg.get("decision", "")).lower())
             if verdict is None:
@@ -229,12 +231,14 @@ class Headless:
     # ── main loop ────────────────────────────────────────────────────────────────
     def run(self) -> int:
         from . import tools
-        from .hooks import session_event
+        from .hooks import session_event, startup_notices
 
         tools.load_builtins()
         threading.Thread(target=self._reader, daemon=True).start()
         if self.heartbeat_s > 0:
             threading.Thread(target=self._heartbeat, daemon=True).start()
+        for note in startup_notices(self.session):
+            self.writer.emit("notice", message=note)
         session_event(self.session, "SessionStart", source="resume" if getattr(self.session, "resumed", False) else "startup")
         self.writer.emit("ready", protocol=PROTOCOL, version=__version__, session_id=self.session.id,
                          model=self.session.active_model, cwd=str(self.session.config.root),

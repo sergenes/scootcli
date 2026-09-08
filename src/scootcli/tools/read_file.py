@@ -32,8 +32,14 @@ class ReadFile(Tool):
             return ToolResult.fail(f"no such file: {args.get('path')}")
         if path.is_dir():
             return ToolResult.fail(f"is a directory: {args.get('path')}")
+        if not path.is_file():
+            return ToolResult.fail(f"not a regular file: {args.get('path')}")  # a FIFO or device would block
 
-        data = path.read_bytes()
+        try:
+            with open(path, "rb") as fh:
+                data = fh.read(MAX_READ_BYTES + 1)  # never the whole file: the cap applies to the read itself
+        except OSError as exc:
+            return ToolResult.fail(f"read failed: {exc}")
         note = ""
         if len(data) > MAX_READ_BYTES:
             data = data[:MAX_READ_BYTES]

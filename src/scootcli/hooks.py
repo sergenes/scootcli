@@ -16,7 +16,11 @@ A hook answers with its exit code or with JSON on stdout:
   * exit 2: block or deny, stderr is the reason
   * anything else, or a timeout: logged and ignored
 Hooks run sequentially in configuration order; the first blocking decision wins.
-``SCOOT_HOOKS=0`` disables everything. Hooks never see API keys.
+``SCOOT_HOOKS=0`` disables everything. Provider API key variables are removed from a hook's
+environment. A project's ``.scoot/hooks.json`` runs only after the user trusted it with
+``/hooks trust``; the trust is bound to the file's content, so an edited file asks again. A hook's
+``allow`` waives scoot's approval prompt; it waives the denylist confirmation only when the hook lives
+in the user's global config (a machine-level delegate such as an editor or phone bridge), never a project.
 """
 
 from __future__ import annotations
@@ -48,6 +52,7 @@ class Decision:
     action: str = ""      # "" | allow | deny | ask | block
     reason: str = ""
     context: str = ""     # extra text a hook printed (UserPromptSubmit adds it to the prompt)
+    from_global: bool = False  # the deciding hook is in the user's global config, not a project file
 
     @property
     def blocks(self) -> bool:
@@ -78,6 +83,62 @@ def global_path() -> Path:
 
 def project_path(root) -> Path:
     return Path(root) / ".scoot" / "hooks.json"
+
+
+def file_digest(path: Path) -> Optional[str]:
+    """sha256 of the file's bytes, or ``None`` when it cannot be read."""
+    import hashlib
+
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:
+        return None
+
+
+def project_trust(root) -> str:
+    """``"trusted"``, ``"untrusted"`` (a project file exists and is not trusted, or changed since),
+    or ``"none"`` (no project hooks file)."""
+    path = project_path(root)
+    if not path.is_file():
+        return "none"
+    from .preferences import trusted_hooks_digest
+
+    digest = file_digest(path)
+    return "trusted" if digest and digest == trusted_hooks_digest(root) else "untrusted"
+
+
+def trust_project(root) -> bool:
+    """Record the current project hooks file as trusted. False when there is no such file."""
+    path = project_path(root)
+    digest = file_digest(path) if path.is_file() else None
+    if not digest:
+        return False
+    from .preferences import trust_hooks
+
+    trust_hooks(root, digest)
+    return True
+
+
+def untrust_project(root) -> bool:
+    from .preferences import untrust_hooks
+
+    return untrust_hooks(root)
+
+
+def _hook_env(payload: dict, event: str) -> dict:
+    """The child's environment: the process environment minus every provider key variable."""
+    env = dict(os.environ)
+    try:
+        from .providers import registry
+
+        for spec in registry.all_specs():
+            for key in spec.key_env:
+                env.pop(key, None)
+    except Exception:
+        pass
+    env["SCOOT_SESSION_ID"] = str(payload.get("session_id", ""))
+    env["SCOOT_HOOK_EVENT"] = event
+    return env
 
 
 def _load_file(path: Path) -> Dict[str, list]:
@@ -129,13 +190,28 @@ class Hooks:
             self.reload()
 
     def reload(self) -> None:
+        """Read the global file, and the project file only when the user trusted this exact content.
+
+        An untrusted project file is remembered in ``self.untrusted`` so the front ends can say so.
+        """
         self.config = {}
         self.sources = []
-        for path in (project_path(self.root), global_path()):
+        self.untrusted: Optional[Path] = None
+        self.trust = project_trust(self.root)
+        paths = [global_path()]
+        if self.trust == "trusted":
+            paths.insert(0, project_path(self.root))
+        elif self.trust == "untrusted":
+            self.untrusted = project_path(self.root)
+        gpath = global_path()
+        for path in paths:
             if path.is_file():
                 loaded = _load_file(path)
                 self.sources.append(str(path))
+                origin = "global" if path == gpath else "project"
                 for event, entries in loaded.items():
+                    for entry in entries:
+                        entry["_source"] = origin  # so a decision can say whether it came from global config
                     self.config.setdefault(event, []).extend(entries)
 
     def has(self, event: str) -> bool:
@@ -160,10 +236,14 @@ class Hooks:
 
     # ── running ──────────────────────────────────────────────────────────────────
     def run(self, event: str, payload: dict, cancel_event: Optional[threading.Event] = None) -> Decision:
+        """Run every applicable hook and combine their answers: a deny or block wins over an ask,
+        an ask wins over an allow. An early ``allow`` from one file can no longer hide a ``deny``
+        from another; the first answer at the winning level supplies the reason."""
         if not self.has(event):
             return Decision()
         tool_name = str(payload.get("tool_name", ""))
         context: List[str] = []
+        decisions: List[Decision] = []
         for entry in self.config.get(event, []):
             matcher = entry.get("matcher")
             if matcher and event in ("PreToolUse", "PostToolUse"):
@@ -180,6 +260,13 @@ class Hooks:
                 if decision.context:
                     context.append(decision.context)
                 if decision.action:
+                    decision.from_global = entry.get("_source") == "global"
+                    decisions.append(decision)
+                if cancel_event is not None and cancel_event.is_set():
+                    break
+        for level in (("deny", "block"), ("ask",), ("allow",)):
+            for decision in decisions:
+                if decision.action in level:
                     decision.context = "\n".join(context)
                     return decision
         return Decision(context="\n".join(context))
@@ -188,9 +275,7 @@ class Hooks:
         from .errors import Interrupted
         from .tools.base import ToolError, run_subprocess
 
-        env = dict(os.environ)
-        env["SCOOT_SESSION_ID"] = str(payload.get("session_id", ""))
-        env["SCOOT_HOOK_EVENT"] = event
+        env = _hook_env(payload, event)
         started = time.time()
         try:
             # The same runner as the tools: its own process group, bounded waits, ESC honoured.
@@ -267,6 +352,22 @@ class Hooks:
 # ── helpers used by the REPL, one-shot mode, and headless mode ─────────────────
 def for_session(session) -> Optional[Hooks]:
     return getattr(session, "hooks", None) if enabled() else None
+
+
+def startup_notices(session) -> List[str]:
+    """What a front end should tell the user once at start: an untrusted project hooks file, and
+    project ``.env`` keys that were ignored because only the user may set them."""
+    notes: List[str] = []
+    hooks = getattr(session, "hooks", None)
+    if hooks is not None and getattr(hooks, "untrusted", None) is not None:
+        notes.append(f"this project has hooks in {hooks.untrusted} that are not trusted, so they will not run; "
+                     f"review the file, then /hooks trust")
+    cfg = getattr(session, "config", None)
+    ignored = tuple(getattr(cfg, "ignored_project_keys", ()) or ())
+    if ignored:
+        notes.append(f"ignored from the project .env (only you may set these, in ~/.config/scoot/.env or the "
+                     f"environment): {', '.join(ignored)}")
+    return notes
 
 
 def submit_prompt(session, text: str, cancel_event=None) -> Optional[str]:

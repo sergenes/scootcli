@@ -12,6 +12,13 @@ Only scoot's own keys are imported from them: ``SCOOT_*``, the providers' API-ke
 (``OPENAI_API_KEY``, ...), and the proxy variables. A project's other secrets never enter scoot's
 process through a ``.env`` file.
 
+The project file gets a narrower allowlist than the global one. A repository is untrusted input:
+its ``.env`` may choose what the model is asked and how the terminal looks, but not where requests
+go (base URLs, proxies), what runs on this machine (hooks), what the tools may touch (approval,
+scope, root), or where scoot's own files live (config and state directories). Those keys come from
+flags, the real environment, or the user's global file; a project value for them is ignored and
+reported, never applied.
+
 The CLI-flag layer is applied by the caller (``cli.py``) via :meth:`Config.override`; this module
 handles the lower layers.
 """
@@ -91,16 +98,37 @@ def allowed_env_key(key: str) -> bool:
         return False
 
 
-def load_dotenv(env_path: Path, allow=allowed_env_key) -> List[str]:
-    """Import allowed ``KEY=VALUE`` lines into ``os.environ`` (never overriding); return imported keys.
+# Keys a *project* .env may not set: they move requests, run code, widen what tools may touch, or
+# relocate scoot's own files. Anything a cloned repository must not be able to decide for you.
+_PROJECT_BLOCKED_KEYS = frozenset({
+    "SCOOT_APPROVAL", "SCOOT_SCOPE", "SCOOT_ROOT", "SCOOT_HOOKS", "SCOOT_CONFIG_DIR", "SCOOT_STATE_DIR",
+    *_PROXY_KEYS,
+})
+
+
+def project_env_key_allowed(key: str) -> bool:
+    """The project layer's allowlist: scoot's keys minus the ones that move data or grant power.
+
+    A base URL override (``SCOOT_<PROVIDER>_BASE_URL``) is the sharpest of them: with it a repository
+    could send the user's own API key to a host of its choosing on the first request.
+    """
+    if not allowed_env_key(key):
+        return False
+    if key in _PROJECT_BLOCKED_KEYS or (key.startswith("SCOOT_") and key.endswith("_BASE_URL")):
+        return False
+    return True
+
+
+def parse_dotenv(env_path: Path) -> List[Tuple[str, str]]:
+    """``(key, value)`` pairs from a ``.env`` file, in order; unreadable files yield nothing.
 
     Accepts an optional ``export`` prefix and single or double quotes around the value.
     """
-    imported: List[str] = []
+    pairs: List[Tuple[str, str]] = []
     try:
         lines = env_path.read_text().splitlines()
     except OSError:
-        return imported
+        return pairs
     for line in lines:
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
@@ -109,15 +137,30 @@ def load_dotenv(env_path: Path, allow=allowed_env_key) -> List[str]:
             line = line[len("export "):].lstrip()
         key, _, value = line.partition("=")
         key = key.strip()
-        if not key or not allow(key):
+        if not key:
             continue
         value = value.strip()
         if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
             value = value[1:-1]
+        pairs.append((key, value))
+    return pairs
+
+
+def load_dotenv(env_path: Path, allow=allowed_env_key) -> List[str]:
+    """Import allowed ``KEY=VALUE`` lines into ``os.environ`` (never overriding); return imported keys."""
+    imported: List[str] = []
+    for key, value in parse_dotenv(env_path):
+        if not allow(key):
+            continue
         if key not in os.environ:
             os.environ[key] = value
             imported.append(key)
     return imported
+
+
+def rejected_project_keys(env_path: Path) -> List[str]:
+    """Keys in a project ``.env`` that scoot knows but will not take from a repository."""
+    return [k for k, _ in parse_dotenv(env_path) if allowed_env_key(k) and not project_env_key_allowed(k)]
 
 
 def _as_bool(value: str) -> bool:
@@ -192,6 +235,7 @@ class Config:
     editor: str = "idea"  # external editor for the open_editor tool: idea | vscode
     scope: str = "workspace"  # where file tools may go: workspace (ask once outside it) | anywhere
     env_files: Tuple[str, ...] = ()  # the .env files that were read, in load order (shown by /status)
+    ignored_project_keys: Tuple[str, ...] = ()  # keys the project .env tried to set that only the user may set
     logo: bool = True  # mascot in the launch banner + status-bar face (--no-logo / SCOOT_LOGO / /logo)
     emoji: bool = True  # 🛴 transcript label; off → ⏺ for terminals without an emoji font (--no-emoji)
 
@@ -201,8 +245,14 @@ class Config:
         """Load config from the ``.env`` files + environment variables, falling back to defaults."""
         cwd = (cwd or Path.cwd()).resolve()
         files = env_files(cwd)
+        project = find_project_env(cwd)
+        ignored: List[str] = []
         for env_file in files:
-            load_dotenv(env_file)
+            if env_file == project:
+                load_dotenv(env_file, allow=project_env_key_allowed)
+                ignored = rejected_project_keys(env_file)
+            else:
+                load_dotenv(env_file)
 
         get = os.environ.get
         root = Path(get("SCOOT_ROOT", str(cwd))).resolve()
@@ -210,6 +260,7 @@ class Config:
         return cls(
             proxy=get("HTTPS_PROXY") or get("https_proxy") or DEFAULT_PROXY,
             env_files=tuple(str(f) for f in files),
+            ignored_project_keys=tuple(ignored),
             provider=get("SCOOT_PROVIDER", "").strip().lower(),
             model=model,
             model_source=model_source,

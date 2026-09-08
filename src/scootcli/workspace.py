@@ -62,10 +62,12 @@ def render_tree(root: Path, max_depth: int = _MAX_DEPTH, max_entries: int = _MAX
             children = sorted(directory.iterdir(), key=lambda c: (c.is_file(), c.name.lower()))
         except OSError:
             return
-        dirs = [c for c in children if c.is_dir()
+        # Symlinks are skipped in both lists: a link to a directory outside the workspace would put
+        # its file names into the prompt, and the map is meant to describe this checkout only.
+        dirs = [c for c in children if c.is_dir() and not c.is_symlink()
                 and c.name not in _SKIP_DIRS and not c.name.endswith(".egg-info")
                 and not _is_hidden(c.name)]
-        files = [c for c in children if c.is_file() and not _is_hidden(c.name)]
+        files = [c for c in children if c.is_file() and not c.is_symlink() and not _is_hidden(c.name)]
         indent = "  " * depth
         for child in dirs:
             if budget <= 0:

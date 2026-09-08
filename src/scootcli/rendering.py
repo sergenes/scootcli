@@ -6,6 +6,7 @@ import difflib
 import os
 import re
 import sys
+from typing import List
 
 _COLOR_ENABLED = sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
 
@@ -13,6 +14,7 @@ _CODES = {
     "reset": "\033[0m",
     "bold": "\033[1m",
     "dim": "\033[2m",
+    "reverse": "\033[7m",
     "red": "\033[31m",
     "green": "\033[32m",
     "yellow": "\033[33m",
@@ -42,6 +44,56 @@ _SECRET_RE = re.compile(
 def redact(text: str) -> str:
     """Mask token-like substrings so secrets never reach the terminal/logs."""
     return _SECRET_RE.sub("<redacted>", text)
+
+
+_PROMPT_GUTTER = "❯ "  # ❯
+
+
+def user_band(text: str, width: int) -> str:
+    """Render a submitted user prompt as a full-width reverse-video band, so it reads as clearly
+    distinct from the assistant's answer below it.
+
+    Reverse video (SGR 7) swaps the terminal's own foreground and background, so the band fits any
+    theme, light or dark, with no hard-coded colour. ``width`` is passed in by the caller (the current
+    terminal width), so a resize is reflected on the next prompt; text already in the scrollback keeps
+    its old width, as terminal history cannot reflow. Each physical line is padded with spaces to the
+    full width so the band spans the screen; a long or multi-line prompt becomes several stacked bands.
+
+    Falls back to a plain guttered line when colour is off (not a TTY, or ``NO_COLOR``). Width is
+    measured in characters, which is exact for the usual ASCII prompt; a wide glyph (CJK, emoji) may
+    make one line's band a cell short or long, which is cosmetic only.
+    """
+    if not _COLOR_ENABLED:
+        return _PROMPT_GUTTER + text
+    on, off = _CODES["reverse"], _CODES["reset"]
+    width = max(int(width) or 0, len(_PROMPT_GUTTER) + 1)
+    lines: List[str] = []
+    for i, para in enumerate(text.split("\n")):
+        body = (_PROMPT_GUTTER if i == 0 else "  ") + para
+        chunks = [body[j:j + width] for j in range(0, len(body), width)] or [body]
+        for chunk in chunks:
+            lines.append(f"{on}{chunk}{' ' * (width - len(chunk))}{off}")
+    return "\n".join(lines)
+
+
+# Replay-item fields that must be stored exactly as received: encrypted or signed by the provider,
+# and rejected on the next request if a single byte changes. Never redacted.
+_OPAQUE_KEYS = frozenset({"signature", "encrypted_content", "thinking", "summary", "data"})
+
+
+def redact_value(value, _key: str = ""):
+    """``redact`` applied through dicts and lists: every string leaf is masked, except under the
+    opaque keys above. A message's ``content``, its ``tool_calls[*].function.arguments``, and the text
+    or tool-input copies inside ``provider_items`` all pass through here before a session is saved."""
+    if _key in _OPAQUE_KEYS:
+        return value
+    if isinstance(value, str):
+        return redact(value)
+    if isinstance(value, dict):
+        return {k: redact_value(v, str(k)) for k, v in value.items()}
+    if isinstance(value, list):
+        return [redact_value(v) for v in value]
+    return value
 
 
 def eprint(*args, **kwargs) -> None:

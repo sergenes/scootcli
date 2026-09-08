@@ -51,8 +51,15 @@ def _is_slash_command(line: str) -> bool:
 
 
 def _user_echo(text: str) -> str:
-    """Bolded, colour-guttered echo of a submitted user prompt (dock mode only)."""
-    return color("❯ ", "green", "bold") + color(text, "bold")
+    """A submitted user prompt echoed as a full-width reverse-video band, distinct from the answer.
+
+    The width is read here, so each prompt uses the terminal's current width after a resize.
+    """
+    import shutil
+
+    from .rendering import user_band
+
+    return user_band(text, shutil.get_terminal_size((80, 24)).columns)
 
 
 
@@ -612,8 +619,10 @@ class Repl:
                 print(color(line, "yellow"))
         if self.session.resumed:
             self._replay_transcript()
-        from .hooks import session_event
+        from .hooks import session_event, startup_notices
 
+        for note in startup_notices(self.session):
+            print(color(f"⚠ {note}", "yellow"))
         session_event(self.session, "SessionStart", source="resume" if self.session.resumed else "startup")
         self._start_update_check()
         if self.resize is not None:

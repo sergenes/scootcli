@@ -296,10 +296,13 @@ New capability is a drop-in file: a tool in `tools/`, a slash command in `comman
 
 ## Security
 
-- API keys are read from the environment or from `~/.config/scoot/credentials.json` (directory `0700`, file `0600`), validated before saving, and never echoed; `rendering.redact()` masks key-shaped strings in all output.
-- Only allowlisted keys are imported from `.env` files.
-- All file and shell tools are sandboxed to the workspace root; destructive shell commands are always re-confirmed.
-- Saved sessions are owner-only with secrets redacted; `/forget all` removes them.
+What scoot protects, and what it does not.
+
+- **Your API keys.** Read from the environment or from `~/.config/scoot/credentials.json` (directory `0700`, file `0600`), validated before saving, never echoed, and removed from the environment of every hook scoot runs. Key-shaped strings are masked in error messages and in saved sessions (message text, tool arguments, and the text copies inside provider replay data; signed or encrypted replay fields are stored as received). Streamed model output is printed as it arrives and is not filtered.
+- **A cloned repository cannot reconfigure you.** A project `.env` may choose the model, effort, and how the terminal looks. It may not set provider base URLs or proxies (which would send your key elsewhere), the approval mode, the scope, the root, hooks, or scoot's config and state directories; those come from flags, your environment, or `~/.config/scoot/.env`, and a project value for them is ignored and reported at start. A project's `.scoot/hooks.json` runs only after you review it and run `/hooks trust`; the trust is bound to the file's content, so an edited file asks again.
+- **File tools are scoped, shell commands are not sandboxed.** `read_file`, `list_dir`, `search`, `write_file`, and `edit_file` stay inside the workspace plus the paths you grant, and never follow a symlink out of it. `run_shell` runs the command as you, with your normal access to files, network, and other programs; approving a command means exactly that. The denylist (`rm -rf`, `git push`, `sudo`, piping a download into a shell, and so on) is an accident guard that forces a confirmation in every mode, including when a project's hook says `allow` (a hook in your own global config can waive it, so an editor or phone bridge you installed still works); it is not a boundary.
+- **The default is `yolo`.** Tool calls run without asking, except the denylist and paths outside the workspace. Use `--approval always` or `auto-read` on code you do not trust yet, and `/worktree start` to keep autonomous edits out of your checkout.
+- **Saved sessions** are owner-only, keyed by workspace, and pruned to the last 20; `/forget all` removes them. Session ids are file names, never paths.
 - No third-party dependencies means no third-party code to audit.
 
 ## Contributing

@@ -15,6 +15,7 @@ Global flags override config: ``--model``, ``--proxy``, ``--root``,
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 import json as _json
 import sys
 from typing import List, Optional
@@ -89,7 +90,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _config_from_args(args: argparse.Namespace) -> Config:
-    return Config.load().override(
+    # The workspace decides which project .env applies, so resolve --root before loading; otherwise
+    # `scoot --root ~/other` would take the launch directory's settings into the other project.
+    start = Path(args.root).expanduser().resolve() if args.root else None
+    return Config.load(cwd=start).override(
         model=args.model,
         provider=args.provider,
         effort=args.effort,
@@ -161,9 +165,11 @@ def _run_once(config: Config, pool: ProviderPool, prompt: str, as_json: bool, re
     session = ReplSession(config, pool)
     if resume is not None:
         session.apply_record(resume)
-    from .hooks import Hooks, session_event, submit_prompt
+    from .hooks import Hooks, session_event, startup_notices, submit_prompt
 
     session.hooks = Hooks(config.root)
+    for note in startup_notices(session):
+        eprint(color(f"⚠ {note}", "yellow"))
     session_event(session, "SessionStart", source="resume" if resume is not None else "startup")
     submitted = submit_prompt(session, prompt)
     if submitted is None:

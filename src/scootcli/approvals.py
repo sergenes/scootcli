@@ -46,9 +46,13 @@ MODES = ("always", "auto-read", "auto-edits", "yolo")
 
 # Catastrophic shell commands that are ALWAYS confirmed, even in yolo mode.
 _DENYLIST = [
-    (re.compile(r"\brm\s+-[a-z]*r[a-z]*f|\brm\s+-[a-z]*f[a-z]*r", re.I), "recursive force delete"),
+    # rm with a recursive flag and a force flag anywhere in the same command (``-rf``, ``-r -f``,
+    # ``-fR``, ``--recursive --force``); ``[^|;&]*`` keeps both lookaheads inside one command.
+    (re.compile(r"\brm\b(?=[^|;&]*\s-(?:[a-z]*r[a-z]*|-recursive)\b)(?=[^|;&]*\s-(?:[a-z]*f[a-z]*|-force)\b)", re.I),
+     "recursive force delete"),
     (re.compile(r":\(\)\s*\{.*\|.*&\s*\}\s*;", re.S), "fork bomb"),
-    (re.compile(r"\bgit\s+push\b", re.I), "git push"),
+    # git push with any options between ``git`` and ``push`` (``-C repo``, ``--git-dir=x``, ``-c k=v``).
+    (re.compile(r"\bgit\b(?:\s+-{1,2}[\w-]+(?:[= ]\S+)?)*\s+push\b", re.I), "git push"),
     (re.compile(r"\bsudo\b", re.I), "sudo"),
     (re.compile(r"\b(shutdown|reboot|halt|poweroff)\b", re.I), "power/shutdown"),
     (re.compile(r"\bmkfs\b|\bdd\s+.*of=/dev/", re.I), "disk/format command"),
@@ -129,6 +133,14 @@ def _edit_args(args: dict) -> dict:
 SCOPE_CHOICES = ("once", "dir", "all", "deny", "abort")
 
 
+def _menu_key() -> str:
+    """One keypress for the approval menus: ``A`` (the session-wide choice) keeps its case, every other
+    key is lowercased so ``T`` still means trust. ``read_key`` used to lowercase everything, which made
+    the advertised ``[A]`` unreachable."""
+    key = read_key(keep_case=True)
+    return key if key == "A" else key.lower()
+
+
 def request_scope(tool: Tool, path, ctx: ToolContext) -> str:
     """Ask once about a path outside the workspace. Returns one of ``SCOPE_CHOICES``."""
     from pathlib import Path as _P
@@ -146,7 +158,7 @@ def request_scope(tool: Tool, path, ctx: ToolContext) -> str:
             + color("quit", "red") + " [q] › ",
             end="", flush=True,
         )
-        key = read_key()
+        key = _menu_key()
         print(key)
         if key in ("a", "y", "\r", "\n", ""):
             return "once"
@@ -181,7 +193,7 @@ def request_approval(tool: Tool, args: dict, ctx: ToolContext) -> Approval:
             end="",
             flush=True,
         )
-        key = read_key()
+        key = _menu_key()
         print(key)  # echo the choice for a clean transcript
 
         if key in ("a", "y", "\r", "\n", ""):

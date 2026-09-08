@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 from . import tools
-from .approvals import Approval, Decision, needs_prompt
+from .approvals import Approval, Decision, denylisted_reason, needs_prompt
 from .config import Config
 from .errors import ScootError, ContextLengthError, Interrupted, ModelUnavailableError
 from .prompts import build_agent_system_prompt
@@ -235,10 +235,10 @@ class Agent:
         decision = hooks.run("Stop", payload)
         return (decision.reason or "the Stop hook asked to continue") if decision.blocks else ""
 
-    def _pre_tool_hook(self, session, tool, args, cancel_event) -> "tuple[str, str]":
+    def _pre_tool_hook(self, session, tool, args, cancel_event) -> "tuple[str, str, bool]":
         hooks = self._hooks(session)
         if hooks is None or not hooks.has("PreToolUse"):
-            return "", ""
+            return "", "", False
         from .hooks import tool_kind
 
         from .hooks import tool_alias
@@ -246,7 +246,7 @@ class Agent:
         payload = hooks.payload(session, "PreToolUse", tool_name=tool.name, tool_input=args,
                                 tool_kind=tool_kind(tool), tool_alias=tool_alias(tool.name))
         decision = hooks.run("PreToolUse", payload, cancel_event)
-        return decision.action, decision.reason
+        return decision.action, decision.reason, decision.from_global
 
     def _post_tool_hook(self, session, tool, args, result: ToolResult) -> None:
         hooks = self._hooks(session)
@@ -461,7 +461,7 @@ class Agent:
                     ui.tool_result(name, ToolResult(ok=False, summary="outside the workspace: declined"))
                     continue
             # A PreToolUse hook may deny (skip the tool), allow (skip the prompt), or ask (force it).
-            hook_action, hook_reason = self._pre_tool_hook(session, tool, args, cancel_event)
+            hook_action, hook_reason, hook_from_global = self._pre_tool_hook(session, tool, args, cancel_event)
             if cancel_event.is_set():  # ESC while the hook ran
                 self._append_tool(session, tc_id, "not executed: the user interrupted the turn")
                 return self._interrupted(session, tool_calls)
@@ -471,7 +471,13 @@ class Agent:
                 continue
             # Approval policy: auto-approve when the mode/trust allows it, else prompt.
             must_prompt = needs_prompt(mode, tool, args, trusted)
-            if hook_action == "allow":
+            # A hook may waive scoot's own approval prompt. It may also waive the denylist confirmation,
+            # but only when it lives in the user's own global config: that is the user's machine-level
+            # delegation (an editor or a phone bridge approving on their behalf). A project's hook, even
+            # one trusted to run, is repo-authored and must not silently auto-run a catastrophic command.
+            waivable = hook_action == "allow" and (hook_from_global or not (
+                tool.name == "run_shell" and denylisted_reason(args.get("command", ""))))
+            if waivable:
                 must_prompt = None
             elif hook_action == "ask":
                 must_prompt = hook_reason or "hook asked for confirmation"

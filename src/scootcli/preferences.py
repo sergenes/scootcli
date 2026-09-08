@@ -60,6 +60,39 @@ def save_preference(key: str, value) -> None:
     _write(prefs)
 
 
+# ── trusted project hooks ───────────────────────────────────────────────────────
+TRUSTED_HOOKS = "trusted_hooks"  # {resolved root: {"digest": sha256 of .scoot/hooks.json, "at": epoch}}
+
+
+def trusted_hooks_digest(root) -> Optional[str]:
+    """The digest of the project hooks file the user trusted for ``root``, or ``None``."""
+    entry = (load_preferences().get(TRUSTED_HOOKS) or {}).get(_root_key(root))
+    return entry.get("digest") if isinstance(entry, dict) else None
+
+
+def trust_hooks(root, digest: str) -> None:
+    import time
+
+    prefs = load_preferences()
+    table = prefs.get(TRUSTED_HOOKS)
+    if not isinstance(table, dict):
+        table = {}
+    table[_root_key(root)] = {"digest": digest, "at": time.time()}
+    prefs[TRUSTED_HOOKS] = table
+    _write(prefs)
+
+
+def untrust_hooks(root) -> bool:
+    prefs = load_preferences()
+    table = prefs.get(TRUSTED_HOOKS)
+    if not isinstance(table, dict) or _root_key(root) not in table:
+        return False
+    del table[_root_key(root)]
+    prefs[TRUSTED_HOOKS] = table
+    _write(prefs)
+    return True
+
+
 # ── model preference ────────────────────────────────────────────────────────────
 FOLDER = "folder"        # the model saved for this workspace root
 EVERYWHERE = "everywhere"  # the model saved for every folder without its own

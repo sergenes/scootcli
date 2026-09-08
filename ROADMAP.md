@@ -55,14 +55,18 @@ The dock repaints on `SIGWINCH`: the editor wakes at once, locates the transcrip
 
 The first release driven by an outside review: worktree finish that never removes uncommitted work, atomic file writes with argument validation, failed-command output reaching the model, resume that keeps this run's approval mode, complete tool-result history after abort or interrupt, cut-off replies reported as incomplete, process-group cancellation for shell and hooks, socket shutdown on ESC, prompt SSE delivery, and a zipapp that exits with the real status.
 
-## 0.10.0: trust boundaries (next)
+## 0.10.0: trust boundaries (released 2026-09-08)
 
-The remaining high-priority findings of the same review, the ones that change behaviour and documentation:
+The remaining high-priority findings of the same review, the ones that change behaviour and documentation, all shipped:
 
 - Project `.env` gets a narrow allowlist (R02): endpoint URLs, approval, scope, hooks, and config or state directories come only from flags or the user's own configuration.
 - Project hooks require a one-time trust decision per repository, denies win over allows across project and global hooks, and provider key variables are stripped from hook environments (R01).
 - The README security section says what is true: file tools are scoped, shell commands run with the user's normal access, the denylist is an accident guard (R03). The `yolo` default stays; `rm -r -f` and `git -C x push --force` join the denylist's normalisation.
 - The stdlib search fallback and the workspace map skip symlinks and hidden or ignored files (R07); session redaction reaches tool arguments and replay items (R13); session ids are validated as basenames and malformed records are skipped on listing (R17).
+
+## 0.11.0: machine interfaces and small corrections (next)
+
+The review's medium findings: one-shot `--json` that is exactly one JSON object on every exit path (R18); `--root` resolved before the `.env` search so settings come from the target project; approval keys, scope lifetimes, and headless request ids matching their labels (R20); untrusted terminal control characters escaped in diffs and model output (R21); bounded reads and captured output (R15); a fallback cycle that cannot alternate between two unavailable models (R16); ripgrep errors told apart from "no matches"; a shared atomic JSON writer for credentials, preferences, and sessions.
 
 ## Later, as configuration rows
 

@@ -45,7 +45,15 @@ def test_config_merge_project_first_and_claude_code_shape(monkeypatch, tmp_path)
         "Stop": [{"hooks": [{"type": "command", "command": "echo project"}]}],
         "Bogus": [{"hooks": [{"command": "echo never"}]}],
         "PreToolUse": "not a list"}))
+    # Untrusted: the project file is seen but not loaded.
     h = H.Hooks(root)
+    assert h.trust == "untrusted" and h.untrusted == root / ".scoot" / "hooks.json"
+    assert [Path(s).name for s in h.sources] == ["hooks.json"] and "cfg" in h.sources[0]
+    assert [e["hooks"][0]["command"] for e in h.config["Stop"]] == ["echo global"]
+    # Trusted: project first, then global.
+    assert H.trust_project(root)
+    h = H.Hooks(root)
+    assert h.trust == "trusted" and h.untrusted is None
     assert [Path(s).name for s in h.sources] == ["hooks.json", "hooks.json"] and "repo" in h.sources[0]
     assert [e["hooks"][0]["command"] for e in h.config["Stop"]] == ["echo project", "echo global"]
     assert "Bogus" not in h.config and "PreToolUse" not in h.config
@@ -297,3 +305,207 @@ def test_hook_timeout_is_bounded_even_with_a_lingering_child(tmp_path):
     decision = h.run("Stop", {"session_id": "s"})
     assert time.monotonic() - started < 4
     assert decision.action == "" and h.history[-1].outcome == "timeout"
+
+
+# ── 0.10.0: project hooks need trust; denies win; hooks never see keys (review R01) ─
+def test_trust_is_bound_to_the_file_content(tmp_path):
+    root = tmp_path / "repo"
+    (root / ".scoot").mkdir(parents=True)
+    hooks_file = root / ".scoot" / "hooks.json"
+    hooks_file.write_text(json.dumps({"Stop": [{"hooks": [{"command": "echo one"}]}]}))
+    assert H.project_trust(root) == "untrusted" and not H.Hooks(root).has("Stop")
+    assert H.trust_project(root)
+    assert H.project_trust(root) == "trusted" and H.Hooks(root).has("Stop")
+    hooks_file.write_text(json.dumps({"Stop": [{"hooks": [{"command": "echo changed"}]}]}))
+    assert H.project_trust(root) == "untrusted", "an edited file must ask again"
+    assert not H.Hooks(root).has("Stop")
+    assert H.untrust_project(root) and not H.untrust_project(root)
+    hooks_file.unlink()
+    assert H.project_trust(root) == "none" and not H.trust_project(root)
+
+
+def test_hooks_command_trust_and_untrust(tmp_path):
+    import io
+    from contextlib import redirect_stdout
+
+    from scootcli.commands import hooks as cmd
+
+    root = tmp_path / "repo"
+    (root / ".scoot").mkdir(parents=True)
+    (root / ".scoot" / "hooks.json").write_text(json.dumps({"Stop": [{"hooks": [{"command": "echo p"}]}]}))
+    s = _Session(root)
+    s.hooks = H.Hooks(root)
+    out = io.StringIO()
+    with redirect_stdout(out):
+        cmd._run(s, "")
+    assert "NOT trusted" in out.getvalue() and not s.hooks.has("Stop")
+    out = io.StringIO()
+    with redirect_stdout(out):
+        cmd._run(s, "trust")
+    assert "trusted" in out.getvalue() and s.hooks.has("Stop")
+    out = io.StringIO()
+    with redirect_stdout(out):
+        cmd._run(s, "untrust")
+    assert "off again" in out.getvalue() and not s.hooks.has("Stop")
+
+
+def test_deny_wins_over_an_earlier_allow(tmp_path):
+    allow = _script(tmp_path, "allow2", 'print(json.dumps({"permissionDecision": "allow"}))')
+    deny = _script(tmp_path, "deny2", 'print(json.dumps({"permissionDecision": "deny", "reason": "policy"}))')
+    ask = _script(tmp_path, "ask2", 'print(json.dumps({"permissionDecision": "ask", "reason": "look"}))')
+    h = _hooks(tmp_path, {"PreToolUse": [{"hooks": [{"command": allow}]}, {"hooks": [{"command": deny}]}]})
+    d = h.run("PreToolUse", {"tool_name": "edit_file"})
+    assert d.action == "deny" and d.reason == "policy"
+    h = _hooks(tmp_path, {"PreToolUse": [{"hooks": [{"command": allow}]}, {"hooks": [{"command": ask}]}]})
+    assert h.run("PreToolUse", {"tool_name": "edit_file"}).action == "ask"
+    h = _hooks(tmp_path, {"Stop": [{"hooks": [{"command": "echo nothing"}]}, {"hooks": [{"command": "exit 2"}]}]})
+    assert h.run("Stop", {}).action == "block"
+
+
+def test_hook_environment_has_no_provider_keys(tmp_path, monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-000000000000")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-000000000000")
+    monkeypatch.setenv("SOME_OTHER_VAR", "kept")
+    probe = _script(tmp_path, "envprobe", 'import os\nprint(json.dumps({"context": ",".join(k for k in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "SOME_OTHER_VAR") if k in os.environ)}))')
+    h = _hooks(tmp_path, {"Stop": [{"hooks": [{"command": probe}]}]})
+    assert h.run("Stop", {}).context == "SOME_OTHER_VAR"
+
+
+def test_hook_allow_cannot_waive_the_denylist_confirmation(tmp_path):
+    from scootcli import tools
+    from scootcli.agent import Agent, HeadlessUI
+    from scootcli.approvals import Decision
+    from scootcli.providers import ChatResult
+
+    root = tmp_path / "repo"
+    root.mkdir()
+
+    class _S(_Session):
+        def __init__(self, r):
+            super().__init__(r)
+            self.model = "m"
+            self.approval_mode = "yolo"
+            self.bad_models = set()
+            self.config = Config().override(root=str(r), stream=False, workspace_context=False)
+
+        def resolved_model(self):
+            return "m"
+
+        def available_models(self):
+            return ["m"]
+
+        def account(self, usage, model=""):
+            pass
+
+    class _Provider:
+        def __init__(self):
+            self.i = 0
+
+        def chat(self, *a, **k):
+            self.i += 1
+            if self.i == 1:
+                return ChatResult(content="", model="m", tool_calls=[{"id": "c1", "type": "function", "function": {
+                    "name": "run_shell", "arguments": json.dumps({"command": "rm -r -f /tmp/nothing-here"})}}])
+            return ChatResult(content="ok", model="m")
+
+    tools.load_builtins()
+    allow = _script(tmp_path, "allowsh", 'print(json.dumps({"permissionDecision": "allow"}))')
+    s = _S(root)
+    s.hooks = _hooks(root, {"PreToolUse": [{"hooks": [{"command": allow}]}]})
+    ui = HeadlessUI(Decision.SKIP)  # the user says no at the prompt
+    Agent(s.config, _Provider()).run_turn(s, ui)
+    assert any(e[0] == "approve" and e[1] == "run_shell" for e in ui.events), "the denylist prompt was skipped"
+
+
+def test_startup_notices_name_untrusted_hooks_and_ignored_keys(tmp_path):
+    root = tmp_path / "repo"
+    (root / ".scoot").mkdir(parents=True)
+    (root / ".scoot" / "hooks.json").write_text(json.dumps({"Stop": [{"hooks": [{"command": "echo p"}]}]}))
+    s = _Session(root)
+    s.hooks = H.Hooks(root)
+    s.config = s.config.override(ignored_project_keys=("SCOOT_OPENAI_BASE_URL", "SCOOT_APPROVAL"))
+    notes = H.startup_notices(s)
+    assert len(notes) == 2
+    assert "not trusted" in notes[0] and "/hooks trust" in notes[0]
+    assert "SCOOT_OPENAI_BASE_URL" in notes[1] and "SCOOT_APPROVAL" in notes[1]
+    H.trust_project(root)
+    s.hooks = H.Hooks(root)
+    s.config = s.config.override(ignored_project_keys=())
+    assert H.startup_notices(s) == []
+
+
+# ── 0.10.0 follow-up: only a global-config hook's allow waives the denylist ──────
+def _run_denylisted_shell(root, hooks_obj, command, ui_decision):
+    """Drive one turn whose only tool call is a denylisted shell command; return the HeadlessUI so the
+    test can see whether an approval prompt was raised."""
+    from scootcli import tools
+    from scootcli.agent import Agent, HeadlessUI
+    from scootcli.providers import ChatResult
+
+    class _S(_Session):
+        def __init__(self, r):
+            super().__init__(r)
+            self.model = "m"
+            self.approval_mode = "always"
+            self.bad_models = set()
+            self.config = Config().override(root=str(r), stream=False, workspace_context=False)
+
+        def resolved_model(self):
+            return "m"
+
+        def available_models(self):
+            return ["m"]
+
+        def account(self, usage, model=""):
+            pass
+
+    class _Provider:
+        def __init__(self):
+            self.i = 0
+
+        def chat(self, *a, **k):
+            self.i += 1
+            if self.i == 1:
+                return ChatResult(content="", model="m", tool_calls=[{"id": "c1", "type": "function", "function": {
+                    "name": "run_shell", "arguments": json.dumps({"command": command})}}])
+            return ChatResult(content="ok", model="m")
+
+    tools.load_builtins()
+    s = _S(root)
+    s.hooks = hooks_obj
+    ui = HeadlessUI(ui_decision)
+    Agent(s.config, _Provider()).run_turn(s, ui)
+    return ui
+
+
+def test_global_hook_allow_waives_the_denylist(tmp_path, monkeypatch):
+    from scootcli.approvals import Decision
+
+    monkeypatch.setenv("SCOOT_CONFIG_DIR", str(tmp_path / "cfg"))
+    (tmp_path / "cfg").mkdir()
+    allow = _script(tmp_path, "gallow", 'print(json.dumps({"permissionDecision": "allow"}))')
+    (tmp_path / "cfg" / "hooks.json").write_text(json.dumps({"PreToolUse": [{"hooks": [{"command": allow}]}]}))
+    root = tmp_path / "repo"
+    root.mkdir()
+    hooks = H.Hooks(root)  # real reload: the allow is tagged as coming from global config
+    ui = _run_denylisted_shell(root, hooks, "git push", Decision.SKIP)
+    # A global hook stands in for the user's own delegate (a phone bridge), so no terminal prompt.
+    assert not any(e[0] == "approve" and e[1] == "run_shell" for e in ui.events)
+    assert any(e[0] == "auto" and e[1] == "run_shell" for e in ui.events)
+
+
+def test_trusted_project_hook_allow_still_prompts_on_the_denylist(tmp_path, monkeypatch):
+    from scootcli.approvals import Decision
+
+    monkeypatch.setenv("SCOOT_CONFIG_DIR", str(tmp_path / "cfg"))
+    (tmp_path / "cfg").mkdir()
+    root = tmp_path / "repo"
+    (root / ".scoot").mkdir(parents=True)
+    allow = _script(tmp_path, "pallow", 'print(json.dumps({"permissionDecision": "allow"}))')
+    (root / ".scoot" / "hooks.json").write_text(json.dumps({"PreToolUse": [{"hooks": [{"command": allow}]}]}))
+    assert H.trust_project(root)
+    hooks = H.Hooks(root)
+    assert hooks.trust == "trusted" and hooks.has("PreToolUse")
+    ui = _run_denylisted_shell(root, hooks, "git push", Decision.SKIP)
+    # A repo's own hook, even one trusted to run, must not silently auto-run a catastrophic command.
+    assert any(e[0] == "approve" and e[1] == "run_shell" for e in ui.events)

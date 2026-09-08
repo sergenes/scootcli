@@ -2,7 +2,7 @@
 
 ## Overview
 `scoot` is a tiny terminal coding agent in plain Python: a prompt-first REPL with an agentic loop (native tool calling, a live progress plan, a `DONE` stop condition), a workspace-aware prompt (auto-injected repo map), live streaming, session persistence and resume, a bottom status bar with a fixed input dock, approval-gated tools with per-session trust, approval modes (`always`/`auto-read`/`auto-edits`/`yolo`), optional git-worktree isolation, and **zero third-party dependencies** (Python 3.9+ stdlib only).
-It talks to official model APIs through a provider layer: OpenAI (Responses API) and a local Ollama today, Anthropic next.
+It talks to official model APIs through a provider layer: OpenAI (Responses API), Anthropic (Messages API), and a local Ollama.
 Models are addressed as `provider/model`.
 
 ## Layout
