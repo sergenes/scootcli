@@ -278,7 +278,42 @@ def truncate(text: str, max_chars: int = MAX_OUTPUT_CHARS, max_lines: int = MAX_
 
 
 # ── Interruptible subprocess (shared by run_shell, ripgrep search, and hooks) ──
-_KILL_GRACE = 2.0  # seconds a process group gets after SIGTERM before SIGKILL
+_KILL_GRACE = 2.0            # seconds a process group gets after SIGTERM before SIGKILL
+_MAX_CAPTURE_CHARS = 512 * 1024  # per stream: bound memory so a runaway command cannot exhaust it
+
+
+def _drain(stream, buf: list, state: dict) -> None:
+    """Read ``stream`` to EOF into ``buf``, keeping at most ``_MAX_CAPTURE_CHARS``.
+
+    Reading never stops at the cap: the excess is discarded but still consumed, so the child never
+    blocks on a full pipe (which would defeat the timeout). A decode error on binary output ends the
+    read gracefully with whatever was captured, rather than raising.
+    """
+    try:
+        while True:
+            chunk = stream.read(65536)
+            if not chunk:
+                break
+            room = _MAX_CAPTURE_CHARS - state["n"]
+            if room > 0:
+                buf.append(chunk[:room])
+                state["n"] += min(len(chunk), room)
+            if len(chunk) > room:
+                state["truncated"] = True
+    except (OSError, ValueError):  # closed pipe, or UnicodeDecodeError on binary output
+        pass
+    finally:
+        try:
+            stream.close()
+        except OSError:
+            pass
+
+
+def _captured(buf: list, state: dict) -> str:
+    text = "".join(buf)
+    if state["truncated"]:
+        text += "\n… [output truncated]"
+    return text
 
 
 def run_subprocess(
@@ -296,6 +331,9 @@ def run_subprocess(
     descendant that inherited the output pipes cannot keep the call blocked after the shell is gone.
     Every wait after a kill is bounded; a process that escapes its group is abandoned, not waited on.
     stdin is ``input_text`` when given, else closed (``DEVNULL``) so a child can't wedge on a prompt.
+
+    Each stream is drained by a reader thread into a buffer capped at ``_MAX_CAPTURE_CHARS``, so a
+    command that prints without end cannot exhaust memory before the display truncation runs.
     """
     posix = os.name == "posix"
     proc = subprocess.Popen(
@@ -308,20 +346,40 @@ def run_subprocess(
         env=env,
         start_new_session=posix,
     )
+    out_buf, err_buf = [], []
+    out_state, err_state = {"n": 0, "truncated": False}, {"n": 0, "truncated": False}
+    readers = [
+        threading.Thread(target=_drain, args=(proc.stdout, out_buf, out_state), daemon=True),
+        threading.Thread(target=_drain, args=(proc.stderr, err_buf, err_state), daemon=True),
+    ]
+    for t in readers:
+        t.start()
+    if input_text is not None:
+        def _feed() -> None:
+            try:
+                proc.stdin.write(input_text)
+            except (OSError, ValueError):
+                pass
+            finally:
+                try:
+                    proc.stdin.close()
+                except OSError:
+                    pass
+        threading.Thread(target=_feed, daemon=True).start()
+
     deadline = time.monotonic() + timeout
-    pending_input = input_text
     while True:
-        try:
-            stdout, stderr = proc.communicate(input=pending_input, timeout=0.1)
-            return proc.returncode, stdout, stderr
-        except subprocess.TimeoutExpired:
-            pending_input = None  # communicate() keeps the input it already started sending
-            if cancel_event is not None and cancel_event.is_set():
-                _stop_process(proc, posix)
-                raise Interrupted("tool cancelled by user")
-            if time.monotonic() > deadline:
-                _stop_process(proc, posix, force=True)
-                raise ToolError(f"command timed out after {timeout}s")
+        if proc.poll() is not None:
+            for t in readers:
+                t.join(timeout=_KILL_GRACE)  # let the drains finish; bounded so a stuck reader can't hang
+            return proc.returncode, _captured(out_buf, out_state), _captured(err_buf, err_state)
+        if cancel_event is not None and cancel_event.is_set():
+            _stop_process(proc, posix)
+            raise Interrupted("tool cancelled by user")
+        if time.monotonic() > deadline:
+            _stop_process(proc, posix, force=True)
+            raise ToolError(f"command timed out after {timeout}s")
+        time.sleep(0.05)
 
 
 def _signal_group(proc: "subprocess.Popen", sig, posix: bool) -> None:
@@ -337,19 +395,22 @@ def _signal_group(proc: "subprocess.Popen", sig, posix: bool) -> None:
 
 
 def _stop_process(proc: "subprocess.Popen", posix: bool, force: bool = False) -> None:
-    """Terminate ``proc`` and its process group, escalate to SIGKILL, and never wait unbounded."""
+    """Terminate ``proc`` and its process group, escalate to SIGKILL, and never wait unbounded.
+
+    The reader threads own the pipes now, so this only waits for exit (``proc.wait``) and, as a last
+    resort, closes the pipes to unblock a reader still stuck on a process that escaped the group.
+    """
     if not force:
         _signal_group(proc, signal.SIGTERM, posix)
         try:
-            proc.communicate(timeout=_KILL_GRACE)
+            proc.wait(timeout=_KILL_GRACE)
             return
         except subprocess.TimeoutExpired:
             pass
     _signal_group(proc, signal.SIGKILL if posix else signal.SIGTERM, posix)
     try:
-        proc.communicate(timeout=_KILL_GRACE)
+        proc.wait(timeout=_KILL_GRACE)
     except subprocess.TimeoutExpired:
-        # Something outside the group still holds the pipes; drop them rather than hang the UI.
         for stream in (proc.stdout, proc.stderr, proc.stdin):
             try:
                 if stream is not None:

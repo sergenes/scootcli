@@ -72,12 +72,11 @@ The review's medium findings. Shipped on `dev`:
 - ✅ `--root` resolved before the `.env` search (0.10.0), and the `[A]` key and headless request ids (0.10.0); "allow this path" now lasts one call, not the session (R20).
 - ✅ Untrusted terminal control characters stripped from diffs, tool output, transcript, and model text (R21).
 - ✅ A fallback cycle that cannot alternate between two unavailable models (R16).
-- ✅ ripgrep errors told apart from "no matches"; numeric config settings validated; `AGENTS.md` read bounded (part of R15).
+- ✅ ripgrep errors told apart from "no matches"; numeric config settings validated; `AGENTS.md` read bounded (R15).
 - ✅ A shared atomic JSON writer for credentials, preferences, and sessions.
+- ✅ Bounded subprocess capture (R15): `run_shell`, ripgrep, and hook output are drained by reader threads into a 512 KB-per-stream buffer, so a runaway command is killed at the timeout instead of exhausting memory; process-group cancellation is unchanged.
 
-Remaining:
-
-- Bounded subprocess capture (rest of R15): `run_shell` and hook output are still fully buffered by `communicate()` before truncation, and ripgrep output is fully collected before the match cap. Drain each pipe into a bounded buffer so a runaway command cannot exhaust memory. This one needs a live run because it touches the process-group cancellation path, so it gets its own commit.
+Code-complete; ready for a local test and release.
 
 ## Later, as configuration rows
 

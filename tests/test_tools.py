@@ -476,3 +476,36 @@ def test_agents_md_is_bounded():
         (root / "AGENTS.md").write_text("x" * (_AGENTS_MD_MAX + 5000))
         text = load_agents_md(root)
         assert len(text) <= _AGENTS_MD_MAX + 40 and "truncated" in text
+
+
+# ── 0.11.0: subprocess capture is bounded (review R15) ───────────────────────────
+def test_run_subprocess_bounds_captured_output():
+    import sys as _sys
+    from scootcli.tools.base import _MAX_CAPTURE_CHARS, run_subprocess
+
+    # A command that prints far more than the cap, then exits: the return is bounded, not the full 4 MB.
+    rc, out, _err = run_subprocess(
+        [_sys.executable, "-c", "import sys; sys.stdout.write('x' * 4_000_000)"],
+        Path("."), timeout=30)
+    assert rc == 0
+    assert len(out) <= _MAX_CAPTURE_CHARS + 40
+    assert "truncated" in out
+    # A small command is still captured in full, no marker.
+    rc, out, _err = run_subprocess([_sys.executable, "-c", "print('small')"], Path("."), timeout=10)
+    assert rc == 0 and out.strip() == "small" and "truncated" not in out
+
+
+def test_run_subprocess_bounds_output_without_hanging_on_a_runaway():
+    import sys as _sys
+    import time as _time
+    from scootcli.tools.base import ToolError, run_subprocess
+
+    # An endless printer must be stopped by the timeout with a bounded buffer, not fill memory first.
+    started = _time.monotonic()
+    try:
+        run_subprocess([_sys.executable, "-c", "import sys\nwhile True: sys.stdout.write('x' * 4096)"],
+                       Path("."), timeout=1)
+        assert False, "expected a timeout"
+    except ToolError as exc:
+        assert "timed out" in str(exc)
+    assert _time.monotonic() - started < 4  # stopped promptly, did not buffer without end

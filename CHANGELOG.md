@@ -12,6 +12,7 @@ What comes next lives in [`ROADMAP.md`](./ROADMAP.md); the behaviour spec in [`S
 - **ripgrep errors are not "no matches".** An invalid regex or an I/O failure (ripgrep exit 2 or more) is now surfaced as a search error instead of an empty result.
 - **Numeric settings are validated.** `SCOOT_TIMEOUT`, `SCOOT_MAX_STEPS`, `SCOOT_COMPACT_AT`, and `SCOOT_IMAGE_MAX_BYTES` now give a clear config error with sensible bounds instead of a raw traceback on a bad value, and `AGENTS.md` is read with a size cap.
 - **One atomic JSON writer.** Credentials, preferences, and sessions share a single writer that writes through a uniquely named temp file and an atomic rename with owner-only permissions; credential updates are no longer truncated in place, and temp names no longer collide between processes.
+- **Subprocess output is bounded (R15).** `run_shell`, ripgrep, and hook output were buffered in full by `communicate()` before truncation, so a runaway command could exhaust memory. Each stream is now drained by a reader thread into a buffer capped at 512 KB, with the process-group cancellation and timeout unchanged; a command that never stops printing is killed at the timeout instead of buffering without end.
 
 ## [0.10.0] — trust boundaries (2026-09-08)
 The second release from the outside review of 0.8.1: the findings that change what a repository can make scoot do. The `yolo` default stays.
