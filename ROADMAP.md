@@ -64,9 +64,20 @@ The remaining high-priority findings of the same review, the ones that change be
 - The README security section says what is true: file tools are scoped, shell commands run with the user's normal access, the denylist is an accident guard (R03). The `yolo` default stays; `rm -r -f` and `git -C x push --force` join the denylist's normalisation.
 - The stdlib search fallback and the workspace map skip symlinks and hidden or ignored files (R07); session redaction reaches tool arguments and replay items (R13); session ids are validated as basenames and malformed records are skipped on listing (R17).
 
-## 0.11.0: machine interfaces and small corrections (next)
+## 0.11.0: machine interfaces and small corrections (in progress)
 
-The review's medium findings: one-shot `--json` that is exactly one JSON object on every exit path (R18); `--root` resolved before the `.env` search so settings come from the target project; approval keys, scope lifetimes, and headless request ids matching their labels (R20); untrusted terminal control characters escaped in diffs and model output (R21); bounded reads and captured output (R15); a fallback cycle that cannot alternate between two unavailable models (R16); ripgrep errors told apart from "no matches"; a shared atomic JSON writer for credentials, preferences, and sessions.
+The review's medium findings. Shipped on `dev`:
+
+- ✅ One-shot `--json` is exactly one JSON object on every exit path, diagnostics to stderr (R18).
+- ✅ `--root` resolved before the `.env` search (0.10.0), and the `[A]` key and headless request ids (0.10.0); "allow this path" now lasts one call, not the session (R20).
+- ✅ Untrusted terminal control characters stripped from diffs, tool output, transcript, and model text (R21).
+- ✅ A fallback cycle that cannot alternate between two unavailable models (R16).
+- ✅ ripgrep errors told apart from "no matches"; numeric config settings validated; `AGENTS.md` read bounded (part of R15).
+- ✅ A shared atomic JSON writer for credentials, preferences, and sessions.
+
+Remaining:
+
+- Bounded subprocess capture (rest of R15): `run_shell` and hook output are still fully buffered by `communicate()` before truncation, and ripgrep output is fully collected before the match cap. Drain each pipe into a bounded buffer so a runaway command cannot exhaust memory. This one needs a live run because it touches the process-group cancellation path, so it gets its own commit.
 
 ## Later, as configuration rows
 
