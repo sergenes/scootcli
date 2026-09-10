@@ -24,7 +24,7 @@ from .providers import ProviderPool
 from . import __version__
 from .config import Config
 from .errors import ScootError
-from .rendering import color, eprint, redact
+from .rendering import color, eprint, redact, strip_controls
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -150,15 +150,20 @@ def _run_once(config: Config, pool: ProviderPool, prompt: str, as_json: bool, re
     import threading
 
     from .agent import Agent
-    from .repl import ReplSession, ReplUI
+    from .repl import OneShotJsonUI, ReplSession, ReplUI
+
+    def _emit_json(status: str, *, model: str = "", steps: int = 0, content: str = "",
+                   error: str = "", usage=None, cost=None) -> None:
+        """The one and only object written to stdout in --json mode, on every exit path."""
+        print(_json.dumps({"status": status, "model": model, "steps": steps, "content": content,
+                           "error": error, "usage": usage or {}, "cost": cost}, indent=2))
 
     from .providers.registry import readiness
 
     ready, message = readiness(config)
     if not ready:  # fail fast with guidance instead of a connection error after retries
         if as_json:
-            print(_json.dumps({"status": "error", "model": "", "steps": 0, "content": "",
-                               "error": message, "usage": {}}, indent=2))
+            _emit_json("error", error=message)
         else:
             eprint(color(message, "yellow"))
         return 1
@@ -174,8 +179,11 @@ def _run_once(config: Config, pool: ProviderPool, prompt: str, as_json: bool, re
     submitted = submit_prompt(session, prompt)
     if submitted is None:
         reason = getattr(session, "hook_block_reason", "") or "a UserPromptSubmit hook blocked it"
-        eprint(color(f"⏹ prompt not sent: {reason}", "yellow"))
         session_event(session, "SessionEnd", reason="blocked")
+        if as_json:
+            _emit_json("blocked", model=session.active_model, error=reason)
+        else:
+            eprint(color(f"⏹ prompt not sent: {reason}", "yellow"))
         return 1
     prompt = submitted
     # Fold any dropped image paths into the prompt (best-effort; no-op when none/disabled).
@@ -188,25 +196,20 @@ def _run_once(config: Config, pool: ProviderPool, prompt: str, as_json: bool, re
     session.messages.append({"role": "user", "content": prompt})
     # JSON output must be clean, so never stream tokens to stdout in that mode.
     agent_config = config.override(stream=False) if as_json else config
-    outcome = Agent(agent_config, pool).run_turn(session, ReplUI(), threading.Event())
+    ui = OneShotJsonUI() if as_json else ReplUI()
+    outcome = Agent(agent_config, pool).run_turn(session, ui, threading.Event())
     session.autosave()  # persist so `scoot -c` can continue this conversation
     session_event(session, "SessionEnd", reason=outcome.status)
 
     if as_json:
-        print(_json.dumps({
-            "status": outcome.status,
-            "model": session.active_model,
-            "steps": outcome.steps,
-            "content": outcome.content,
-            "error": outcome.error,
-            "usage": session.last_usage,
-            "cost": session.session_cost(),
-        }, indent=2))
+        _emit_json(outcome.status, model=session.active_model, steps=outcome.steps,
+                   content=outcome.content, error=outcome.error, usage=session.last_usage,
+                   cost=session.session_cost())
         return 0 if outcome.status == "done" else 1
 
     if outcome.status == "done":
         if outcome.content.strip() and not outcome.streamed:
-            print(outcome.content.strip())
+            print(strip_controls(outcome.content.strip()))
         if config.verbose:
             from .pricing import fmt
 
@@ -217,7 +220,7 @@ def _run_once(config: Config, pool: ProviderPool, prompt: str, as_json: bool, re
                          f"cost={fmt(session.session_cost())}", "gray"))
         return 0
     if outcome.status == "incomplete" and outcome.content.strip() and not outcome.streamed:
-        print(outcome.content.strip())
+        print(strip_controls(outcome.content.strip()))
     eprint(color(f"⚠ {redact(outcome.error or outcome.status)}", "red"))
     return 1
 

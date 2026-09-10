@@ -223,3 +223,38 @@ def test_cut_off_tool_calls_never_run_and_retries_are_bounded():
         assert outcome.steps == 2
         tool_msgs = [m for m in session.messages if m.get("role") == "tool"]
         assert len(tool_msgs) == 2 and all("cut off" in m["content"] for m in tool_msgs)
+
+
+def test_fallback_never_alternates_between_two_dead_models(monkeypatch):
+    """R16: even a router that keeps offering an already-failed model makes fallback give up."""
+    with tempfile.TemporaryDirectory() as d:
+        agent, session = _agent(Path(d), [ChatResult(content="x", model="m")])
+        session.bad_models = set()
+        session.active_model = "A"
+        picks = iter(["B", "A", "B"])  # a picker that would loop A <-> B forever
+        monkeypatch.setattr(agent, "_pick_model", lambda s: next(picks))
+        assert agent._fallback_model(session) is True and session.active_model == "B"
+        assert agent._fallback_model(session) is False  # A is already bad -> stop, no cycle
+
+
+def test_oneshot_json_ui_keeps_stdout_clean_and_declines_prompts():
+    """R18: the one-shot JSON UI writes nothing to stdout; the plan and declines go to stderr."""
+    import io
+    from contextlib import redirect_stderr, redirect_stdout
+
+    from scootcli.repl import OneShotJsonUI
+
+    with tempfile.TemporaryDirectory() as d:
+        agent, session = _agent(Path(d), [
+            _toolcall("update_plan", {"plan": [{"step": "a", "status": "completed"},
+                                               {"step": "b", "status": "pending"}]}),
+            _toolcall("write_file", {"path": "x.txt", "content": "no"}),  # a write prompts in 'always'
+            ChatResult(content="done.\nDONE", model="m"),
+        ])
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            outcome = agent.run_turn(session, OneShotJsonUI())
+        assert outcome.status == "done"
+        assert out.getvalue() == "", "the JSON one-shot UI must never touch stdout"
+        assert not (Path(d) / "x.txt").exists(), "an approval that cannot be answered is declined"
+        assert "plan" in err.getvalue() and "declined" in err.getvalue()

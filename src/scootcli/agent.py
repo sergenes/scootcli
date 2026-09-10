@@ -40,6 +40,8 @@ _CUT_OFF = {
     "incomplete": "the stream ended before the reply was complete",
 }
 
+_MAX_FALLBACKS = 6  # a turn's model-unavailable switches, so a bad router cannot spin forever
+
 
 def _strip_done(text: str) -> str:
     """Remove a trailing ``DONE`` sentinel line from the model's final message."""
@@ -112,6 +114,7 @@ class Agent:
         compacted = False
         stop_blocks = 0
         cut_off = 0  # tool batches the model could not finish (output limit); bounded retries
+        fallbacks = 0  # model-unavailable switches this turn; bounded independently of steps
         while True:
             if cancel_event.is_set():
                 return AgentOutcome("interrupted", steps=steps)
@@ -124,8 +127,9 @@ class Agent:
             except Interrupted:
                 return AgentOutcome("interrupted", steps=steps)
             except ModelUnavailableError as exc:
-                if self._fallback_model(session):
-                    ui.assistant(f"model unavailable — switching to {session.active_model}.")
+                fallbacks += 1
+                if fallbacks <= _MAX_FALLBACKS and self._fallback_model(session):
+                    ui.assistant(f"model unavailable, switching to {session.active_model}.")
                     steps -= 1  # don't count the failed attempt
                     continue
                 return AgentOutcome("error", error=_fmt_error(exc), steps=steps)
@@ -288,10 +292,10 @@ class Agent:
         except Exception:
             available = []
         bad = getattr(session, "bad_models", None) or set()
-        available = [m for m in available if m not in bad] or available
+        available = [m for m in available if m not in bad]  # never re-pick a model that already failed
         hints = compute_hints(session)
         return router.choose(session, hints, available, session.resolved_model(),
-                             classify=self._classify_with_provider).model
+                             classify=self._classify_with_provider, excluded=bad).model
 
     def _classify_with_provider(self, model: str, prompt: str) -> str:
         """One small, non-streaming call used by a configured router classifier."""
@@ -300,18 +304,15 @@ class Agent:
         return result.content or ""
 
     def _fallback_model(self, session) -> bool:
-        """After a model-unavailable error, blacklist it and switch models. Returns False if stuck."""
-        bad = session.active_model
-        fallback = session.resolved_model()
-        if bad == fallback and session.model.lower() != "auto":
-            return False
+        """After a model-unavailable error, mark the failed model bad and switch. Returns False when
+        there is nothing new to try, so the loop cannot alternate forever between two dead models."""
+        failed = session.active_model
         if hasattr(session, "bad_models"):
-            session.bad_models.add(bad)
+            session.bad_models.add(failed)
+        bad = getattr(session, "bad_models", None) or set()
         new = self._pick_model(session)
-        if new == bad:
-            if bad == fallback:
-                return False
-            new = fallback
+        if not new or new in bad:
+            return False  # every candidate is already known unavailable this turn
         session.active_model = new
         return True
 

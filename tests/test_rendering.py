@@ -51,3 +51,25 @@ def test_user_band_survives_a_tiny_width(monkeypatch):
     for line in band.split("\n"):
         assert line.startswith("\x1b[7m") and line.endswith("\x1b[0m")
         assert len(_visible(line)) >= len("❯ ")
+
+
+# ── 0.11.0: untrusted terminal control sequences are neutralised (review R21) ────
+def test_strip_controls_removes_escapes_and_keeps_text():
+    from scootcli.rendering import strip_controls
+
+    assert strip_controls("hello") == "hello"
+    assert strip_controls("keep\ttab and\nnewline") == "keep\ttab and\nnewline"
+    assert strip_controls("\x1b[31mred\x1b[0m") == "red"                 # full ANSI colour removed
+    assert strip_controls("a\x1b]0;title\x07b") == "ab"                  # OSC title-set removed
+    assert strip_controls("over\rwrite") == "overwrite"                  # carriage return dropped
+    assert strip_controls("bell\x07 and null\x00") == "bell and null"    # C0 bytes dropped
+    assert "\x1b" not in strip_controls("split\x1b")                     # a lone/split ESC is dropped
+
+
+def test_unified_diff_sanitizes_file_content(monkeypatch):
+    from scootcli import rendering
+
+    monkeypatch.setattr(rendering, "_COLOR_ENABLED", False)  # isolate content from scoot's own colour
+    diff = rendering.unified_diff("old line\n", "new\x1b[31mline\x07\n", "f.txt")
+    assert "\x1b" not in diff and "\x07" not in diff
+    assert "newline" in diff  # the injected escape is gone, the surrounding text stays

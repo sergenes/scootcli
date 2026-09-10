@@ -67,7 +67,7 @@ Every tool call in a reply gets a `tool` message, also when the batch is aborted
 Arguments that are not a JSON object never run a tool; the model is told to call it again.
 5.3 A trailing `DONE` sentinel in the final answer is stripped before display.
 5.4 On reaching the step limit the REPL asks whether to continue for another batch; one-shot mode stops.
-5.5 A context-length error triggers one automatic compaction (§9) and a retry; a model-unavailable error switches to another model once and retries.
+5.5 A context-length error triggers one automatic compaction (§9) and a retry; a model-unavailable error switches to another model and retries, never re-selecting a model that already failed this turn (rules, classifier, default, and heuristic all skip the failed set) and bounded so it cannot alternate between two unavailable models.
 5.6 Streaming is on by default: tokens print as they arrive, the turn stays interruptible, and `--no-stream` or `--json` disables it.
 5.7 A compact workspace map (git branch and dirty count, bounded file tree) is injected into the system prompt each turn unless `--no-workspace`.
 5.8 An `AGENTS.md` at the workspace root is injected into the system prompt when present; `/init` generates one.
@@ -147,8 +147,10 @@ Resuming restores the conversation and, when this run set no model explicitly, t
 ## 12. Output and exit codes
 
 12.1 One-shot mode prints the final answer and exits 0 on success, 1 on error or on an incomplete reply (the partial text is still printed); `--json` prints `{status, model, steps, content, error, usage, cost}` (`cost` is null when a model's price is unknown).
+12.1a In `--json` mode stdout carries exactly that one object on every exit path, including a readiness or hook-blocked failure; all diagnostics go to stderr, and an approval or scope request that cannot be answered non-interactively is declined rather than prompted.
 12.2 `--verbose` adds the model, step count, and token usage on stderr.
 12.3 Ctrl-C quits with exit code 130.
+12.4 Text that originates outside scoot's own UI (file diffs, tool output, replayed transcript, and model output, streamed or buffered) has terminal control sequences and C0 control bytes removed before display, keeping tabs and newlines, so it cannot recolour the screen, move the cursor, or hide an approval preview.
 
 ## 13. Hooks
 

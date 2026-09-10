@@ -105,8 +105,10 @@ def _render(tool: Tool, args: dict, ctx: ToolContext) -> None:
     except Exception as exc:  # a preview must never crash the loop
         preview = color(f"(preview unavailable: {exc})", "gray")
     if preview:
+        from .rendering import strip_controls
+
         for line in preview.splitlines():
-            print("  " + line)
+            print("  " + strip_controls(line))
 
 
 def _edit_args(args: dict) -> dict:

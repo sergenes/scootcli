@@ -27,7 +27,7 @@ from .lineeditor import LineEditor
 from . import logo
 from .panel import StatusBar, build_status_text
 from .prompts import CHAT_SYSTEM_PROMPT
-from .rendering import color, eprint, redact
+from .rendering import color, eprint, redact, strip_controls
 from .status import Status
 from .tools.base import ToolResult
 
@@ -308,7 +308,7 @@ class _StreamPrinter:
     @staticmethod
     def _write(text: str) -> None:
         if text:
-            sys.stdout.write(text)
+            sys.stdout.write(strip_controls(text))  # model output is untrusted; keep escapes off the terminal
             sys.stdout.flush()
 
 
@@ -447,6 +447,7 @@ class ReplUI:
         # the next step); on a non-TTY it's diagnostic, so drop it (keep stdout clean for --json).
         if self.verbosity == "quiet":
             return  # reasoning narration suppressed at this level
+        text = strip_controls(text)
         if self._tty:
             self.label_once()  # print the ⏺ scoot lead-in once, then narrate underneath it
             self._ephemeral(color(text, "gray"))
@@ -514,6 +515,44 @@ class ReplUI:
         icon = color("✔", "green") if result.ok else color("✗", "yellow")
         detail = result.summary or (result.error if not result.ok else "")
         self._ephemeral(f"  {icon} {color(name, 'bold')} {color(detail, 'gray')}")
+
+
+class OneShotJsonUI:
+    """The UI for ``--json`` one-shot runs. stdout is reserved for the single JSON object, so every
+    diagnostic goes to stderr and an approval that would prompt is declined, since automation cannot
+    answer one. See review R18.
+    """
+
+    @contextmanager
+    def activity(self, message: str, cancel_event: threading.Event):
+        yield  # no spinner: nothing may touch stdout
+
+    def assistant(self, text: str) -> None:
+        text = strip_controls(text).strip()
+        if text:
+            eprint(color(text, "gray"))
+
+    def auto_approved(self, tool, args) -> None:
+        eprint(color(f"● {tool.name} (auto)", "gray"))
+
+    def approve(self, tool, args, ctx):
+        from .approvals import Approval, Decision
+
+        eprint(color(f"✗ {tool.name} needs approval; declined (non-interactive --json)", "yellow"))
+        return Approval(Decision.SKIP, args)
+
+    def approve_scope(self, tool, path, ctx) -> str:
+        eprint(color(f"✗ {tool.name} wants {path} outside the workspace; declined (non-interactive --json)",
+                     "yellow"))
+        return "deny"
+
+    def plan(self, plan) -> None:
+        done = sum(1 for s in plan if s.get("status") == "completed")
+        eprint(color(f"◇ plan · {done}/{len(plan)}", "gray"))
+
+    def tool_result(self, name: str, result) -> None:
+        icon = "✔" if result.ok else "✗"
+        eprint(color(f"  {icon} {name} {result.summary or result.error or ''}", "gray"))
 
 
 class Repl:
@@ -590,7 +629,7 @@ class Repl:
                 content = m.get("content")
                 if not isinstance(content, str) or not content.strip():
                     continue
-                text = content.strip()
+                text = strip_controls(content.strip())
                 if role == "user":
                     print(_user_echo(text) if self.labels else (color("› ", "green") + text))
                     printed = True
@@ -982,7 +1021,7 @@ class Repl:
         session = self.session
         self.ui._commit_line()  # clear any leftover transient step/tool line before permanent output
         if outcome.status == "done":
-            answer = outcome.content.strip()
+            answer = strip_controls(outcome.content.strip())
             session.last_output = answer  # remember for /c + Ctrl-S copy
             if answer and not outcome.streamed:
                 if self.labels and sys.stdout.isatty():
@@ -995,7 +1034,7 @@ class Repl:
                     f"prompt={u.get('prompt_tokens', '?')} "
                     f"completion={u.get('completion_tokens', '?')}", "gray"))
         elif outcome.status == "incomplete":
-            partial = outcome.content.strip()
+            partial = strip_controls(outcome.content.strip())
             session.last_output = partial
             if partial and not outcome.streamed:
                 if self.labels and sys.stdout.isatty():
