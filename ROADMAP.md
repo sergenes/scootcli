@@ -64,9 +64,19 @@ The remaining high-priority findings of the same review, the ones that change be
 - The README security section says what is true: file tools are scoped, shell commands run with the user's normal access, the denylist is an accident guard (R03). The `yolo` default stays; `rm -r -f` and `git -C x push --force` join the denylist's normalisation.
 - The stdlib search fallback and the workspace map skip symlinks and hidden or ignored files (R07); session redaction reaches tool arguments and replay items (R13); session ids are validated as basenames and malformed records are skipped on listing (R17).
 
-## 0.11.0: machine interfaces and small corrections (next)
+## 0.11.0: machine interfaces and small corrections (in progress)
 
-The review's medium findings: one-shot `--json` that is exactly one JSON object on every exit path (R18); `--root` resolved before the `.env` search so settings come from the target project; approval keys, scope lifetimes, and headless request ids matching their labels (R20); untrusted terminal control characters escaped in diffs and model output (R21); bounded reads and captured output (R15); a fallback cycle that cannot alternate between two unavailable models (R16); ripgrep errors told apart from "no matches"; a shared atomic JSON writer for credentials, preferences, and sessions.
+The review's medium findings. Shipped on `dev`:
+
+- ✅ One-shot `--json` is exactly one JSON object on every exit path, diagnostics to stderr (R18).
+- ✅ `--root` resolved before the `.env` search (0.10.0), and the `[A]` key and headless request ids (0.10.0); "allow this path" now lasts one call, not the session (R20).
+- ✅ Untrusted terminal control characters stripped from diffs, tool output, transcript, and model text (R21).
+- ✅ A fallback cycle that cannot alternate between two unavailable models (R16).
+- ✅ ripgrep errors told apart from "no matches"; numeric config settings validated; `AGENTS.md` read bounded (R15).
+- ✅ A shared atomic JSON writer for credentials, preferences, and sessions.
+- ✅ Bounded subprocess capture (R15): `run_shell`, ripgrep, and hook output are drained by reader threads into a 512 KB-per-stream buffer, so a runaway command is killed at the timeout instead of exhausting memory; process-group cancellation is unchanged.
+
+Code-complete; ready for a local test and release.
 
 ## Later, as configuration rows
 
@@ -81,6 +91,7 @@ Still owed: the same look in iTerm2, and more Linux runs as the first users repo
 Small, released in 0.6.0 (2026-09-06): cost per model in `/status`, the opt-in update check, the Ctrl-N mid-turn note, classifier guidance, `install.sh --uninstall`.
 
 Larger:
+- Web fetch: a gated, opt-in `fetch_url` tool so the agent can read a page (docs, changelogs, error explanations). Off by default, never auto-approved even in `yolo`, SSRF-guarded, text-only, size-bounded, through the existing transport. Search is deferred. Design note and threat model in [`docs/plans/web-fetch.md`](docs/plans/web-fetch.md).
 - Windows: the input dock and ESC handling use termios and raw mode, so scoot runs on Windows only under WSL today; a native path needs the `msvcrt` equivalents and a status bar that survives the console.
 - Auto-attach specific open files beyond the injected repo map.
 - More presets (`test`, `review`).

@@ -11,7 +11,7 @@ import shutil
 from collections import OrderedDict
 
 from . import register
-from .base import Tool, ToolContext, ToolResult, run_subprocess, truncate
+from .base import Tool, ToolContext, ToolError, ToolResult, run_subprocess, truncate
 
 _HIDDEN_DIRS = {".git", ".hg", ".svn", "__pycache__", ".mypy_cache", ".pytest_cache", "node_modules"}
 _SCAN_CAP = 1000     # max raw matches collected internally (keeps work + counts bounded)
@@ -50,10 +50,13 @@ class Search(Tool):
         glob = args.get("include_glob")
         files_only = bool(args.get("files_only"))
 
-        if shutil.which("rg"):
-            matches, capped = self._ripgrep(query, is_regex, glob, ctx)
-        else:
-            matches, capped = self._python_search(query, is_regex, glob, ctx)
+        try:
+            if shutil.which("rg"):
+                matches, capped = self._ripgrep(query, is_regex, glob, ctx)
+            else:
+                matches, capped = self._python_search(query, is_regex, glob, ctx)
+        except ToolError as exc:
+            return ToolResult.fail(str(exc))
 
         if not matches:
             return ToolResult(ok=True, content="(no matches)", summary="0 matches")
@@ -110,7 +113,10 @@ class Search(Tool):
         if glob:
             cmd += ["--glob", glob]
         cmd += ["--", query]
-        _rc, out, _err = run_subprocess(cmd, ctx.root, ctx.cancel_event, timeout=30)
+        rc, out, err = run_subprocess(cmd, ctx.root, ctx.cancel_event, timeout=30)
+        # ripgrep: 0 = matches, 1 = no matches (not an error), 2+ = a real failure (bad regex, I/O).
+        if rc >= 2:
+            raise ToolError(f"search failed: {err.strip() or f'ripgrep exited {rc}'}")
         return self._parse_rg(out.splitlines())
 
     @staticmethod

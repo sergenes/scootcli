@@ -71,13 +71,21 @@ COMPLETION
 """
 
 
+_AGENTS_MD_MAX = 64 * 1024  # project instructions injected into every prompt; keep them bounded
+
+
 def load_agents_md(root: Path) -> str:
     """Return the contents of AGENTS.md at the workspace root, or a placeholder if absent."""
     for name in ("AGENTS.md", "AGENT.md"):
         path = root / name
         if path.exists() and path.is_file():
             try:
-                return path.read_text("utf-8", "replace").strip()
+                with open(path, "rb") as fh:
+                    data = fh.read(_AGENTS_MD_MAX + 1)
+                text = data[:_AGENTS_MD_MAX].decode("utf-8", "replace").strip()
+                if len(data) > _AGENTS_MD_MAX:
+                    text += "\n\n… [AGENTS.md truncated]"
+                return text
             except OSError:
                 break
     return "(none - run /init to generate AGENTS.md)"

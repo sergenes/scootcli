@@ -46,6 +46,26 @@ def redact(text: str) -> str:
     return _SECRET_RE.sub("<redacted>", text)
 
 
+# Terminal control sequences and C0 control bytes in text that came from a file, a tool, a hook, or
+# the model. Left intact, they could recolour the screen, move the cursor, hide an approval preview,
+# or trigger a terminal escape feature. Complete ANSI/OSC sequences are removed first; then every
+# remaining control byte, a lone or split ESC included, so a sequence split across stream chunks is
+# neutralised too. Tab and newline are kept.
+_ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?|\x1b[@-Z\\-_]")
+_CTRL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")  # C0 except \t (09) and \n (0a); drops CR and ESC
+
+
+def strip_controls(text: str) -> str:
+    """Neutralise terminal control sequences in untrusted text, keeping tabs and newlines.
+
+    Use it on anything that originates outside scoot's own UI (file diffs, tool output, model text,
+    replayed transcript) before it reaches the terminal, so the text cannot drive the terminal.
+    """
+    if not text:
+        return text
+    return _CTRL_RE.sub("", _ANSI_RE.sub("", text))
+
+
 _PROMPT_GUTTER = "❯ "  # ❯
 
 
@@ -121,7 +141,8 @@ def unified_diff(old: str, new: str, path: str = "", context: int = 3) -> str:
         fromfile=from_name, tofile=to_name, lineterm="", n=context,
     )
     out = []
-    for line in lines:
+    for raw in lines:
+        line = strip_controls(raw)  # the +/-/@@ markers are scoot's; the line content is from a file
         if line.startswith("+++") or line.startswith("---"):
             out.append(color(line, "bold"))
         elif line.startswith("@@"):

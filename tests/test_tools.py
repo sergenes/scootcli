@@ -453,3 +453,59 @@ def test_image_over_the_cap_is_rejected_before_reading():
             assert False, "expected ImageTooLargeError"
         except ImageTooLargeError as exc:
             assert "over the 1 KB limit" in str(exc)
+
+
+# ── 0.11.0: ripgrep errors are not "no matches" (review corrections) ─────────────
+def test_search_reports_ripgrep_errors():
+    import shutil as _sh
+    from scootcli.tools.search import Search
+
+    if _sh.which("rg") is None:
+        return
+    with tempfile.TemporaryDirectory() as d:
+        # An invalid regex makes ripgrep exit 2; that must surface as an error, not "0 matches".
+        res = tools.get("search").run({"query": "(unclosed", "is_regex": True}, _ctx(Path(d)))
+        assert not res.ok and "search failed" in res.error
+
+
+def test_agents_md_is_bounded():
+    from scootcli.prompts import load_agents_md, _AGENTS_MD_MAX
+
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        (root / "AGENTS.md").write_text("x" * (_AGENTS_MD_MAX + 5000))
+        text = load_agents_md(root)
+        assert len(text) <= _AGENTS_MD_MAX + 40 and "truncated" in text
+
+
+# ── 0.11.0: subprocess capture is bounded (review R15) ───────────────────────────
+def test_run_subprocess_bounds_captured_output():
+    import sys as _sys
+    from scootcli.tools.base import _MAX_CAPTURE_CHARS, run_subprocess
+
+    # A command that prints far more than the cap, then exits: the return is bounded, not the full 4 MB.
+    rc, out, _err = run_subprocess(
+        [_sys.executable, "-c", "import sys; sys.stdout.write('x' * 4_000_000)"],
+        Path("."), timeout=30)
+    assert rc == 0
+    assert len(out) <= _MAX_CAPTURE_CHARS + 40
+    assert "truncated" in out
+    # A small command is still captured in full, no marker.
+    rc, out, _err = run_subprocess([_sys.executable, "-c", "print('small')"], Path("."), timeout=10)
+    assert rc == 0 and out.strip() == "small" and "truncated" not in out
+
+
+def test_run_subprocess_bounds_output_without_hanging_on_a_runaway():
+    import sys as _sys
+    import time as _time
+    from scootcli.tools.base import ToolError, run_subprocess
+
+    # An endless printer must be stopped by the timeout with a bounded buffer, not fill memory first.
+    started = _time.monotonic()
+    try:
+        run_subprocess([_sys.executable, "-c", "import sys\nwhile True: sys.stdout.write('x' * 4096)"],
+                       Path("."), timeout=1)
+        assert False, "expected a timeout"
+    except ToolError as exc:
+        assert "timed out" in str(exc)
+    assert _time.monotonic() - started < 4  # stopped promptly, did not buffer without end

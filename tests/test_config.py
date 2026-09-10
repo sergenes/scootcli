@@ -187,3 +187,27 @@ def test_root_flag_loads_the_target_projects_env(monkeypatch, tmp_path):
     assert cfg.root == target.resolve()
     assert cfg.model == "openai/from-target" and cfg.effort == "high"
     assert [os.path.basename(os.path.dirname(f)) for f in cfg.env_files] == ["target"]
+
+
+# ── 0.11.0: numeric env settings are validated (review corrections) ──────────────
+def test_numeric_config_values_are_validated(monkeypatch, tmp_path):
+    from scootcli.errors import ConfigError
+
+    monkeypatch.chdir(tmp_path)
+    for bad in ("SCOOT_TIMEOUT", "SCOOT_MAX_STEPS", "SCOOT_COMPACT_AT"):
+        monkeypatch.setenv(bad, "not-a-number")
+        try:
+            config.Config.load()
+            assert False, f"expected ConfigError for {bad}"
+        except ConfigError as exc:
+            assert bad in str(exc)
+        monkeypatch.delenv(bad)
+    monkeypatch.setenv("SCOOT_MAX_STEPS", "0")  # below the minimum
+    try:
+        config.Config.load()
+        assert False, "expected ConfigError for an out-of-range value"
+    except ConfigError as exc:
+        assert "between" in str(exc)
+    monkeypatch.delenv("SCOOT_MAX_STEPS")
+    monkeypatch.setenv("SCOOT_TIMEOUT", "90")  # a valid value still works
+    assert config.Config.load().timeout == 90

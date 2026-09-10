@@ -153,3 +153,19 @@ def test_agent_routes_once_per_turn_only_for_auto(monkeypatch, tmp_path):
     s2 = _S("openai/gpt-5-mini")
     Agent(s2.config, _Provider()).run_turn(s2, HeadlessUI())
     assert s2.active_model == "openai/gpt-5-mini" and not getattr(s2, "route_reason", "")
+
+
+# ── 0.11.0: the router never returns a model already known unavailable (review R16) ─
+def test_router_skips_excluded_models(monkeypatch, tmp_path):
+    _isolate(monkeypatch, tmp_path)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-000000000000")
+    rc = RouterConfig(rules=[{"when": {}, "use": "openai/gpt-5.3-codex"}], default="openai/gpt-5-mini")
+    r = Router(rc)
+    s = _Session([{"role": "user", "content": "hi"}])
+    hints = compute_hints(s)
+    # No exclusion: the rule wins.
+    assert r.choose(s, hints, _AVAILABLE, "openai/gpt-5-mini").model == "openai/gpt-5.3-codex"
+    # Excluded: neither the rule's target nor the default (also excluded) may be returned.
+    d = r.choose(s, hints, _AVAILABLE, "openai/gpt-5-mini",
+                 excluded={"openai/gpt-5.3-codex", "openai/gpt-5-mini"})
+    assert d.model not in ("openai/gpt-5.3-codex", "openai/gpt-5-mini")

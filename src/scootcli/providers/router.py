@@ -168,9 +168,10 @@ class Router:
         return spec is not None and is_configured(spec)
 
     def choose(self, session, hints: dict, available: List[str], fallback: str,
-               classify=None) -> Decision:
-        """Pick the model for this turn. ``classify(model, text) -> str`` is injected for testability."""
-        decision = self._choose(session, hints, available, fallback, classify)
+               classify=None, excluded=frozenset()) -> Decision:
+        """Pick the model for this turn. ``classify(model, text) -> str`` is injected for testability.
+        ``excluded`` is the set of models already known unavailable this turn; none is chosen."""
+        decision = self._choose(session, hints, available, fallback, classify, excluded)
         self.last = decision
         try:
             session.route_reason = decision.reason
@@ -178,22 +179,27 @@ class Router:
             pass
         return decision
 
-    def _choose(self, session, hints, available, fallback, classify) -> Decision:
+    def _choose(self, session, hints, available, fallback, classify, excluded=frozenset()) -> Decision:
         cfg = self.config
+
+        def ok(model: str) -> bool:
+            return bool(model) and model not in excluded and self._provider_ok(model)
+
         if cfg.classifier and classify is not None:
             tier = self._classify(classify, hints.get("task_text", ""))
             if tier:
                 target = cfg.classifier["tiers"].get(tier, "")
-                if target and self._provider_ok(target):
+                if ok(target):
                     return Decision(target, f"classifier ({cfg.classifier['model']}) said {tier}")
         for rule in cfg.rules:
-            if _matches(rule.get("when") or {}, hints) and self._provider_ok(rule["use"]):
+            if _matches(rule.get("when") or {}, hints) and ok(rule["use"]):
                 return Decision(rule["use"], f"rule {json.dumps(rule.get('when') or {})}", rule)
-        if cfg.default and self._provider_ok(cfg.default):
+        if ok(cfg.default):
             return Decision(cfg.default, "router default")
         from ..models import resolve_auto
 
-        picked = resolve_auto(hints.get("task_text", ""), available, fallback=fallback)
+        pool = [m for m in available if m not in excluded]
+        picked = resolve_auto(hints.get("task_text", ""), pool, fallback=fallback)
         why = "strong tier" if hints.get("complex") else "cheap tier"
         return Decision(picked, f"built-in heuristic: {why} from the live model list")
 
