@@ -4,7 +4,7 @@ All notable changes to `scoot`. Format loosely follows [Keep a Changelog](https:
 Versions before 0.1.0 were internal builds of the tool's predecessor, renumbered `0.0.N` here and trimmed to what still describes the public tool.
 What comes next lives in [`ROADMAP.md`](./ROADMAP.md); the behaviour spec in [`SPEC.md`](SPEC.md); design notes in [`DESIGN.md`](./DESIGN.md).
 
-## [Unreleased] — 0.11.0 in progress
+## [0.11.0] — clean edges (2026-09-09)
 - **One-shot `--json` is exactly one JSON object (R18).** The JSON path used the interactive UI, so plan updates and approval prompts printed to stdout before the final object, and a hook-blocked prompt produced no JSON at all. A quiet one-shot UI now sends every diagnostic to stderr and declines an approval it cannot ask, and stdout carries the single result object on every exit path.
 - **Untrusted terminal control sequences are stripped (R21).** File diffs, tool output, replayed transcript, and model output (streamed or buffered) had ANSI and control bytes passed through, so a malicious file or reply could recolour the screen or hide an approval preview. Such text is now sanitised before display, keeping tabs and newlines, with split escapes handled across stream chunks.
 - **The router cannot loop between two dead models (R16).** Rules and the classifier ignored the failed-model set, so fallback could alternate A to B to A while each attempt burned a step. Model selection now skips every model that already failed this turn, and fallback is bounded independently of the step count.
