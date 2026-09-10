@@ -34,19 +34,10 @@ def load_preferences() -> dict:
 
 
 def _write(prefs: dict) -> None:
-    directory = _config_dir()
+    from .store import write_json_atomic
+
     try:
-        directory.mkdir(parents=True, exist_ok=True)
-        try:
-            os.chmod(directory, 0o700)
-        except OSError:
-            pass
-        path = _prefs_file()
-        tmp = directory / ".preferences.tmp"
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as fh:
-            json.dump(prefs, fh)
-        os.replace(tmp, path)  # atomic
+        write_json_atomic(_prefs_file(), prefs)
     except OSError:
         pass  # preferences are best-effort
 

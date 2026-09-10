@@ -453,3 +453,26 @@ def test_image_over_the_cap_is_rejected_before_reading():
             assert False, "expected ImageTooLargeError"
         except ImageTooLargeError as exc:
             assert "over the 1 KB limit" in str(exc)
+
+
+# ── 0.11.0: ripgrep errors are not "no matches" (review corrections) ─────────────
+def test_search_reports_ripgrep_errors():
+    import shutil as _sh
+    from scootcli.tools.search import Search
+
+    if _sh.which("rg") is None:
+        return
+    with tempfile.TemporaryDirectory() as d:
+        # An invalid regex makes ripgrep exit 2; that must surface as an error, not "0 matches".
+        res = tools.get("search").run({"query": "(unclosed", "is_regex": True}, _ctx(Path(d)))
+        assert not res.ok and "search failed" in res.error
+
+
+def test_agents_md_is_bounded():
+    from scootcli.prompts import load_agents_md, _AGENTS_MD_MAX
+
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        (root / "AGENTS.md").write_text("x" * (_AGENTS_MD_MAX + 5000))
+        text = load_agents_md(root)
+        assert len(text) <= _AGENTS_MD_MAX + 40 and "truncated" in text

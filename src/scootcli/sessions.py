@@ -168,12 +168,9 @@ def save(record: SessionRecord) -> Optional[Path]:
             os.chmod(directory, 0o700)
         except OSError:
             pass
-        path = directory / f"{record.id}.json"
-        tmp = directory / f".{record.id}.tmp"
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as fh:
-            json.dump(payload, fh)
-        os.replace(tmp, path)  # atomic
+        from .store import write_json_atomic
+
+        path = write_json_atomic(directory / f"{record.id}.json", payload)
         _prune()
         return path
     except OSError:

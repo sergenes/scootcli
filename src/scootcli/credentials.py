@@ -32,21 +32,9 @@ def _load() -> Dict[str, str]:
 
 
 def _write(keys: Dict[str, str]) -> Path:
-    directory = _file().parent
-    directory.mkdir(parents=True, exist_ok=True)
-    try:
-        os.chmod(directory, 0o700)
-    except OSError:
-        pass  # best-effort on exotic filesystems
-    # Open with a restrictive mode from the start so a key is never briefly world-readable.
-    fd = os.open(_file(), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as fh:
-        json.dump({"keys": keys}, fh)
-    try:
-        os.chmod(_file(), 0o600)  # tighten in case the file pre-existed
-    except OSError:
-        pass
-    return _file()
+    from .store import write_json_atomic
+
+    return write_json_atomic(_file(), {"keys": keys})
 
 
 def load_key(provider: str) -> Optional[str]:

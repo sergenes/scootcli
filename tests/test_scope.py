@@ -117,8 +117,15 @@ def test_agent_deny_abort_once_and_all(tmp_path):
     assert [m["content"] for m in s.messages if m["role"] == "tool"][0].startswith("user declined access outside the workspace")
     s, ui, out = _run(ws, call, decision="abort")
     assert out.status == "aborted"
-    s, ui, out = _run(ws, call, decision="once")
-    assert s.scope.granted == [target.resolve()] and not s.scope.allows(target.parent / "g.txt")
+    # "once" allows this call only: it is not added to the session grants, and a second call to the
+    # same outside path is asked again (R20 — the name promised one call, not one session).
+    twocall = [_toolcall("read_file", {"path": str(target)}, "c1"),
+               _toolcall("read_file", {"path": str(target)}, "c2"),
+               ChatResult(content="done", model="m")]
+    s, ui, out = _run(ws, twocall, decision="once")
+    assert out.status == "done"
+    assert len([e for e in ui.events if e[0] == "scope"]) == 2  # asked once per call, not once per session
+    assert s.scope.granted == [] and not s.scope.allows(target.parent / "g.txt")
     s, ui, out = _run(ws, call, decision="all")
     assert s.scope.everything and s.scope.allows("/etc/hosts")
 

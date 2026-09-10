@@ -28,6 +28,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, replace
 from pathlib import Path
+
+from .errors import ConfigError
 from typing import List, Optional, Tuple
 
 # No proxy by default (set HTTPS_PROXY / --proxy when one is required).
@@ -255,6 +257,19 @@ class Config:
                 load_dotenv(env_file)
 
         get = os.environ.get
+
+        def _int(key: str, default: int, low: int, high: int) -> int:
+            raw = get(key)
+            if raw is None or raw.strip() == "":
+                return default
+            try:
+                value = int(raw.strip())
+            except ValueError:
+                raise ConfigError(f"{key} must be an integer, got {raw!r}")
+            if not (low <= value <= high):
+                raise ConfigError(f"{key} must be between {low} and {high}, got {value}")
+            return value
+
         root = Path(get("SCOOT_ROOT", str(cwd))).resolve()
         model, model_source = _resolve_model_setting(get("SCOOT_MODEL"), root)
         return cls(
@@ -265,9 +280,9 @@ class Config:
             model=model,
             model_source=model_source,
             effort=get("SCOOT_EFFORT", "medium").strip().lower(),
-            timeout=int(get("SCOOT_TIMEOUT", "120")),
-            max_steps=int(get("SCOOT_MAX_STEPS", "50")),
-            compact_at=int(get("SCOOT_COMPACT_AT", "100000")),
+            timeout=_int("SCOOT_TIMEOUT", 120, 1, 86_400),
+            max_steps=_int("SCOOT_MAX_STEPS", 50, 1, 10_000),
+            compact_at=_int("SCOOT_COMPACT_AT", 100_000, 1_000, 100_000_000),
             approval=get("SCOOT_APPROVAL", "yolo"),
             root=root,
             verbose=_as_bool(get("SCOOT_VERBOSE", "false")),
@@ -280,7 +295,7 @@ class Config:
             verbosity=get("SCOOT_VERBOSITY", "full").strip().lower(),
             images=_as_bool(get("SCOOT_IMAGES", "true")),
             vision_model=get("SCOOT_VISION_MODEL", "auto"),
-            image_max_bytes=int(get("SCOOT_IMAGE_MAX_BYTES", str(4 * 1024 * 1024))),
+            image_max_bytes=_int("SCOOT_IMAGE_MAX_BYTES", 4 * 1024 * 1024, 1024, 512 * 1024 * 1024),
             editor=get("SCOOT_EDITOR", "idea").strip().lower(),
             scope=get("SCOOT_SCOPE", "workspace").strip().lower(),
             logo=_resolve_logo_setting(get("SCOOT_LOGO")),

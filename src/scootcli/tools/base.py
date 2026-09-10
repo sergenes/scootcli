@@ -71,14 +71,25 @@ class Scope:
 
     def __init__(self, root, everything: bool = False):
         self.root = Path(root).resolve()
-        self.granted: List[Path] = []
+        self.granted: List[Path] = []      # allowed for the rest of the session
+        self.once: List[Path] = []         # allowed for the current tool call only (cleared after)
         self.everything = everything
 
     def allows(self, path) -> bool:
         p = Path(path).expanduser().resolve()
         if self.everything or _inside(p, self.root):
             return True
-        return any(_inside(p, g) for g in self.granted)
+        return any(_inside(p, g) for g in self.granted) or any(_inside(p, g) for g in self.once)
+
+    def grant_once(self, path) -> Path:
+        """Allow ``path`` for the current tool call only; ``clear_once`` drops it afterward."""
+        p = Path(path).expanduser().resolve()
+        if p not in self.once:
+            self.once.append(p)
+        return p
+
+    def clear_once(self) -> None:
+        self.once = []
 
     def grant(self, path) -> Path:
         p = Path(path).expanduser().resolve()

@@ -435,6 +435,8 @@ class Agent:
         for tc in tool_calls:
             if cancel_event.is_set():
                 return self._interrupted(session, tool_calls)
+            if scope is not None:
+                scope.clear_once()  # a prior call's one-shot path grant does not carry into this one
             tc_id = tc.get("id", "")
             fn = tc.get("function", {}) or {}
             name = fn.get("name", "")
@@ -560,7 +562,7 @@ class Agent:
         verdict = asker(tool, paths[0], ctx)
         if verdict == "once":
             for p in paths:
-                scope.grant(p)
+                scope.grant_once(p)  # this call only; re-asked next time
         elif verdict == "dir":
             for p in paths:
                 scope.grant_dir(p)

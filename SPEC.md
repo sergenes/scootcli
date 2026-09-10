@@ -80,7 +80,7 @@ Tool calls in such a reply are not executed; the model is asked once to retry, t
 
 6.1 Built-in tools: `read_file`, `list_dir`, `search`, `write_file`, `edit_file`, `run_shell`, `open_editor`, `update_plan`.
 6.2 Paths are resolved against the workspace root with `~` expanded; the workspace is always allowed.
-A path outside it is not rejected: before the tool runs, the user is asked once, with the choices allow this path, allow its directory for the session, allow anywhere for the session, skip, or abort; grants live on the session (`/scope` shows and changes them, `/status` reports them).
+A path outside it is not rejected: before the tool runs, the user is asked, with the choices allow this path (for this call only), allow its directory for the session, allow anywhere for the session, skip, or abort; the directory and anywhere grants live on the session while allow-this-path lasts one call and is asked again next time (`/scope` shows and changes the session grants, `/status` reports them).
 `SCOOT_SCOPE=anywhere`, `--scope anywhere`, `/scope anywhere`, and `--yes` skip the question; `/scope workspace` revokes.
 A declined access is fed back to the model as `user declined access outside the workspace: <path>`.
 The system prompt tells the model that the workspace is its home, not a wall, so it uses absolute paths elsewhere instead of refusing or handing the user a script.
