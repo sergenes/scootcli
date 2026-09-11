@@ -190,7 +190,7 @@ def _run_once(config: Config, pool: ProviderPool, prompt: str, as_json: bool, re
     try:
         from .vision import fold_images_into_text
 
-        prompt = fold_images_into_text(prompt, config, pool)
+        prompt = fold_images_into_text(prompt, config, pool, session=session)
     except Exception:
         pass
     session.messages.append({"role": "user", "content": prompt})
@@ -203,7 +203,7 @@ def _run_once(config: Config, pool: ProviderPool, prompt: str, as_json: bool, re
 
     if as_json:
         _emit_json(outcome.status, model=session.active_model, steps=outcome.steps,
-                   content=outcome.content, error=outcome.error, usage=session.last_usage,
+                   content=outcome.content, error=outcome.error, usage=session.turn_usage(),
                    cost=session.session_cost())
         return 0 if outcome.status == "done" else 1
 
@@ -213,7 +213,7 @@ def _run_once(config: Config, pool: ProviderPool, prompt: str, as_json: bool, re
         if config.verbose:
             from .pricing import fmt
 
-            u = session.last_usage
+            u = session.turn_usage()
             eprint(color(f"[{session.active_model}] steps={outcome.steps} "
                          f"prompt={u.get('prompt_tokens', '?')} "
                          f"completion={u.get('completion_tokens', '?')} "

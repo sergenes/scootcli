@@ -258,3 +258,22 @@ def test_oneshot_json_ui_keeps_stdout_clean_and_declines_prompts():
         assert out.getvalue() == "", "the JSON one-shot UI must never touch stdout"
         assert not (Path(d) / "x.txt").exists(), "an approval that cannot be answered is declined"
         assert "plan" in err.getvalue() and "declined" in err.getvalue()
+
+
+def test_turn_usage_sums_the_whole_turn_not_the_last_call():
+    """Item 2: usage reflects every model call in the turn, not just the final one."""
+    from scootcli.config import Config
+    from scootcli.repl import ReplSession
+
+    with tempfile.TemporaryDirectory() as d:
+        cfg = Config().override(root=d, workspace_context=False, stream=False)
+        # Two model calls: a tool call (usage A), then the final answer (usage B).
+        r1 = _toolcall("list_dir", {"path": "."}, "c1"); r1.usage = {"prompt_tokens": 100, "completion_tokens": 20}
+        r2 = ChatResult(content="done.\nDONE", model="m", usage={"prompt_tokens": 130, "completion_tokens": 15})
+        agent = Agent(cfg, FakeClient([r1, r2]))
+        session = ReplSession(cfg, None)
+        session.messages.append({"role": "user", "content": "go"})
+        outcome = agent.run_turn(session, HeadlessUI(Decision.APPROVE))
+        assert outcome.status == "done"
+        # last call was 130/15, but the turn is the sum of both calls.
+        assert session.turn_usage() == {"prompt_tokens": 230, "completion_tokens": 35, "total_tokens": 265}

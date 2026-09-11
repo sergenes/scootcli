@@ -176,3 +176,68 @@ def test_fold_images_reraises_interrupt():
         raise AssertionError("expected Interrupted to propagate")
     except Interrupted:
         pass
+
+
+def test_pick_vision_model_prefers_the_selected_provider():
+    # Both providers have a vision model; the selected model is ollama, so vision stays on ollama
+    # instead of crossing to the hosted openai one.
+    class _Cross:
+        def list_models(self):
+            return [ModelInfo(id=m, provider=m.split("/")[0], name=m.split("/")[1])
+                    for m in ("openai/gpt-5.3-codex", "ollama/qwen2.5vl:7b")]
+
+    class _LocalCfg:
+        images = True
+        vision_model = "auto"
+        image_max_bytes = 4 * 1024 * 1024
+        root = None
+
+        def resolve_model(self):
+            return "ollama/llama3.2"
+
+    assert pick_vision_model(_LocalCfg(), _Cross()) == "ollama/qwen2.5vl:7b"
+
+
+def test_fold_accounts_vision_calls_and_keeps_original_indices(tmp_path):
+    # One good image and one oversized (skipped): the good one keeps its original index (2), and its
+    # describe call is accounted on the session.
+    good = tmp_path / "b.png"
+    good.write_bytes(_TINY_PNG)
+    huge = tmp_path / "a.png"
+    huge.write_bytes(_TINY_PNG)
+
+    class _Session:
+        def __init__(self):
+            self.calls = []
+
+        def account(self, usage, model=""):
+            self.calls.append((usage, model))
+
+    class _Cfg2:
+        images = True
+        vision_model = "openai/gpt-5.3-codex"
+        image_max_bytes = 10_000_000
+        root = None
+
+        def resolve_model(self):
+            return "openai/gpt-5.3-codex"
+
+    from scootcli import images as _images
+    orig = _images.to_data_uri
+
+    def _fake_to_data_uri(path, max_bytes=None):
+        if Path(path).name == "a.png":
+            raise _images.ImageTooLargeError("too big")
+        return orig(path, max_bytes=max_bytes)
+
+    _images.to_data_uri = _fake_to_data_uri  # fold imports to_data_uri from .images at call time
+    try:
+        sess = _Session()
+        prov = _FakeProvider()
+        # prompt references a.png (index 1, skipped) then b.png (index 2, kept)
+        out = fold_images_into_text(f"see {huge} and {good}", _Cfg2(), prov, session=sess)
+    finally:
+        _images.to_data_uri = orig
+    assert "[Image 2 — b.png]" in out          # kept its original position, not renumbered to 1
+    assert "[Image 1" not in out               # the skipped one is not present
+    assert len(sess.calls) == 1                # the one describe call was accounted

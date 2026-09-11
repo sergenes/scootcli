@@ -75,6 +75,19 @@ The review's medium findings, making the machine-facing and resource edges predi
 - Bounded reads and captured output (R15): `read_file` refuses special files and reads the cap plus one byte, `run_shell`/ripgrep/hook output are drained into a 512 KB-per-stream buffer so a runaway command is killed at the timeout, and `AGENTS.md` is read with a cap.
 - ripgrep errors told apart from "no matches", numeric config settings validated, and one shared atomic JSON writer for credentials, preferences, and sessions.
 
+## 0.12.0: accounting and vision (in progress)
+
+The review's remaining P2/P3 corrections. Shipped on `dev`:
+
+- Whole-turn usage in `turn_end`, `--json`, and `--verbose`; per-model cost persisted across resume and cleared on `/reset`; vision and classifier calls accounted.
+- Auto vision prefers the selected model's provider; image descriptions keep their original number; image-path detection no longer mangles the surrounding prompt.
+- Test fixture clears all scoot/provider/proxy variables and cleans up its temp dir.
+
+Deferred to a later release (both can affect the agents-at-work bridge, so they get their own careful commit):
+
+- Proactive, shared compaction before large requests (a summarization round-trip and message rewrite now also in headless).
+- One config-directory resolver across `.env`, hooks, keys, and preferences: must preserve the exact global `~/.config/scoot/hooks.json` path the bridge depends on.
+
 ## Later, as configuration rows
 
 - xAI (Grok), Groq, OpenRouter, LM Studio, vLLM: each is a `ProviderSpec` once its Responses or Chat Completions support is checked.

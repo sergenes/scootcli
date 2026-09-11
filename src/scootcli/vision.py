@@ -67,7 +67,12 @@ def pick_vision_model(config, provider, fallback: str = "") -> str:
             fallback = config.resolve_model()
         except Exception:
             fallback = ""
-    return resolve_vision(ids, fallback=fallback)
+    # Prefer a vision model from the selected model's own provider, so a local session does not
+    # silently send its images to a hosted provider; only cross providers when the selected one
+    # has none. Set SCOOT_VISION_MODEL explicitly to override.
+    head = fallback.split("/", 1)[0] if "/" in (fallback or "") else ""
+    same = [m for m in ids if m.split("/", 1)[0] == head] if head else []
+    return resolve_vision(same or ids, fallback=fallback)
 
 
 def describe_images(images: List[EncodedImage], provider, model: str, instruction: str = "",
@@ -94,7 +99,7 @@ def _augment(clean_text: str, blocks: "List[tuple]") -> str:
     return f"{clean_text}\n\n{body}" if clean_text else body
 
 
-def fold_images_into_text(text, config, provider, ui=None, cancel_event=None, model: str = "") -> str:
+def fold_images_into_text(text, config, provider, ui=None, cancel_event=None, model: str = "", session=None) -> str:
     """Detect image paths in ``text``, describe them, and return the text augmented with the result.
 
     Best-effort and non-destructive: if images are disabled or none are found, ``text`` is returned
@@ -123,10 +128,12 @@ def fold_images_into_text(text, config, provider, ui=None, cancel_event=None, mo
 
     try:
         max_bytes = getattr(config, "image_max_bytes", None) or 4 * 1024 * 1024
-        encoded: List[EncodedImage] = []
-        for p in paths:
+        # Keep each image's original 1-based position, so skipping an oversized one does not renumber
+        # the rest: the [Image N] labels must keep matching the badges the user saw in the prompt.
+        encoded: "List[tuple]" = []  # (original_index, EncodedImage)
+        for idx, p in enumerate(paths, 1):
             try:
-                encoded.append(to_data_uri(p, max_bytes=max_bytes))
+                encoded.append((idx, to_data_uri(p, max_bytes=max_bytes)))
             except Exception as exc:  # oversized/unreadable — skip it, keep going
                 if ui is not None and hasattr(ui, "assistant"):
                     ui.assistant(f"skipping image {getattr(p, 'name', p)}: {exc}")
@@ -142,8 +149,13 @@ def fold_images_into_text(text, config, provider, ui=None, cancel_event=None, mo
             # Describe each image in its *own* call so a multi-image prompt gets a complete,
             # correctly-attributed description per image (one shared call tends to merge or drop some).
             out = []
-            for idx, img in enumerate(encoded, 1):
+            for idx, img in encoded:  # idx is the ORIGINAL position, not a re-count
                 res = describe_images([img], provider, vision_model, cancel_event=ce)
+                if session is not None:
+                    try:
+                        session.account(res.usage, model=res.model or vision_model)  # vision calls count
+                    except Exception:
+                        pass
                 out.append((idx, img, (res.text or "").strip()))
             return out
 
@@ -158,7 +170,7 @@ def fold_images_into_text(text, config, provider, ui=None, cancel_event=None, mo
             return _note("no description returned")
         if ui is not None and hasattr(ui, "assistant"):
             ui.assistant(f"read {len(encoded)} image(s): "
-                         + ", ".join(img.name for img in encoded))
+                         + ", ".join(img.name for _idx, img in encoded))
         return _augment(clean, blocks)
     except Interrupted:
         raise  # a real user interrupt → let the caller abort the turn (don't leak raw paths)

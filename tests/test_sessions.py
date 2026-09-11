@@ -274,3 +274,33 @@ def test_redaction_reaches_tool_arguments_and_replay_text_but_not_signatures():
     assert items[2]["thinking"] == f"looks like {token}"
     assert items[2]["signature"] == "eyJhbGciOiJIUzI1NiJ9.sigsigsigsigsig"
     assert raw.count(token) == 1
+
+
+# ── 0.12.0: per-model cost persists across resume; reset clears accounting (item 3) ─
+def test_usage_by_model_persists_and_resume_restores_cost():
+    _fresh_state()
+    from scootcli.config import Config
+    from scootcli.repl import ReplSession
+
+    s = ReplSession(Config().override(root="/proj"), None)
+    s.account({"prompt_tokens": 100, "completion_tokens": 40}, model="openai/gpt-5.3-codex")
+    rec = s.to_record()
+    assert rec.usage_by_model["openai/gpt-5.3-codex"]["prompt"] == 100
+    path = sessions.save(rec)
+    loaded = sessions.load(rec.id)
+    assert loaded.usage_by_model["openai/gpt-5.3-codex"]["completion"] == 40
+    fresh = ReplSession(Config().override(root="/proj"), None)
+    fresh.apply_record(loaded)
+    assert fresh.usage_by_model["openai/gpt-5.3-codex"]["prompt"] == 100  # cost is not 0 after resume
+
+
+def test_reset_clears_cumulative_accounting():
+    _fresh_state()
+    from scootcli.config import Config
+    from scootcli.repl import ReplSession
+
+    s = ReplSession(Config().override(root="/proj"), None)
+    s.account({"prompt_tokens": 50, "completion_tokens": 10}, model="m")
+    s.reset()
+    assert s.total_prompt == 0 and s.total_completion == 0 and s.usage_by_model == {}
+    assert s.turn_usage() == {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
