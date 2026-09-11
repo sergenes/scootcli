@@ -95,6 +95,7 @@ class SessionRecord:
     approval_mode: str
     total_prompt: int = 0
     total_completion: int = 0
+    usage_by_model: dict = field(default_factory=dict)
     messages: List[dict] = field(default_factory=list)
 
     @property
@@ -120,6 +121,7 @@ class SessionRecord:
             "approval_mode": self.approval_mode,
             "total_prompt": self.total_prompt,
             "total_completion": self.total_completion,
+            "usage_by_model": self.usage_by_model,
             "messages": self.messages,
         }
 
@@ -148,6 +150,7 @@ class SessionRecord:
             approval_mode=str(data.get("approval_mode", "always") or "always"),
             total_prompt=int(num("total_prompt", 0)),
             total_completion=int(num("total_completion", 0)),
+            usage_by_model=data.get("usage_by_model") if isinstance(data.get("usage_by_model"), dict) else {},
             messages=messages,
         )
 

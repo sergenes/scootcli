@@ -107,6 +107,8 @@ class Agent:
     # ── public API ───────────────────────────────────────────────────────────────
     def run_turn(self, session, ui, cancel_event: Optional[threading.Event] = None) -> AgentOutcome:
         cancel_event = cancel_event or threading.Event()
+        if hasattr(session, "start_turn"):
+            session.start_turn()  # begin this turn's usage tally (see turn_usage)
         cfg = getattr(session, "config", None) or self.config
         session.active_model = self._pick_model(session)
         self._refresh_workspace(session, cfg)
@@ -294,8 +296,18 @@ class Agent:
         bad = getattr(session, "bad_models", None) or set()
         available = [m for m in available if m not in bad]  # never re-pick a model that already failed
         hints = compute_hints(session)
+
+        def classify(model: str, prompt: str) -> str:
+            result = self.provider.chat([{"role": "user", "content": prompt}], model=model, max_tokens=5,
+                                        temperature=0, hints={"purpose": "route"})
+            try:
+                session.account(result.usage, model=model)  # the classifier call counts too (R: accounting)
+            except Exception:
+                pass
+            return result.content or ""
+
         return router.choose(session, hints, available, session.resolved_model(),
-                             classify=self._classify_with_provider, excluded=bad).model
+                             classify=classify, excluded=bad).model
 
     def _classify_with_provider(self, model: str, prompt: str) -> str:
         """One small, non-streaming call used by a configured router classifier."""

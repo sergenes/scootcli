@@ -203,3 +203,16 @@ if __name__ == "__main__":
             passed += 1
     print(f"\n{passed} passed")
 
+
+
+# ── 0.12.0: extraction preserves the surrounding prompt (item 6) ─────────────────
+def test_extract_preserves_newlines_and_backslashes(tmp_path):
+    img = tmp_path / "shot.png"
+    img.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)
+    text = f"First line, use \\n in code.\n\nHere: {img}\n\nSecond paragraph stays."
+    clean, paths = extract_image_paths(text)
+    assert paths == [img]
+    assert "\\n in code" in clean                 # a backslash in prose is not unescaped
+    assert "First line" in clean and "Second paragraph stays." in clean
+    assert "\n\n" in clean                        # the paragraph break survives
+    assert "First line, use \\n in code. Second paragraph stays." not in clean  # not collapsed to one line

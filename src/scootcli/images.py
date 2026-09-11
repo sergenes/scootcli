@@ -65,7 +65,7 @@ def _try_path(value: str, root: Optional[Path]) -> Optional[Path]:
 def _normalize(text: str) -> str:
     """Make dropped paths detectable: expand ``file://`` URLs and unescape backslash escapes."""
     text = re.sub(r"file://\S+", lambda m: unquote(urlparse(m.group(0)).path), text)
-    return re.sub(r"\\(.)", r"\1", text)  # "\ " → " ", "\(" → "(", etc.
+    return re.sub(r"\\ ", " ", text)  # unescape only "\ " (a dragged path's space); leave other backslashes
 
 
 def _find_image_span(text: str, root: Optional[Path]) -> Optional[Tuple[int, int, Path]]:
@@ -114,7 +114,11 @@ def extract_image_paths(text: str, root: Optional[Path] = None) -> Tuple[str, Li
         s, e, p = span
         paths.append(p)
         work = work[:s] + " " + work[e:]
-    clean = re.sub(r"\s+", " ", work).strip()
+    # Remove only the runs of horizontal whitespace the removal left, and keep the user's line
+    # breaks: collapsing every newline used to turn a multi-line prompt into one line.
+    clean = re.sub(r"[ \t]+", " ", work)
+    clean = re.sub(r" *\n *", "\n", clean)
+    clean = re.sub(r"\n{3,}", "\n\n", clean).strip()
     return clean, paths
 
 

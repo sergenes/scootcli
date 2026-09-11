@@ -35,6 +35,12 @@ def approval_timeout() -> float:
         return 120.0
 
 
+
+def _turn_usage(session):
+    """Whole-turn token usage when the session tracks it, else the last call's usage."""
+    fn = getattr(session, "turn_usage", None)
+    return fn() if callable(fn) else (getattr(session, "last_usage", {}) or {})
+
 class Writer:
     """Thread-safe JSON-lines writer bound to the real stdout."""
 
@@ -294,7 +300,7 @@ class Headless:
             with redirect_stdout(sys.stderr):  # any stray print from a tool or command stays off the protocol
                 try:
                     text = fold_images_into_text(text, self.session.config, self.session.provider, ui=self.ui,
-                                                 cancel_event=self.cancel)
+                                                 cancel_event=self.cancel, session=self.session)
                 except Interrupted:
                     self.writer.emit("turn_end", turn=self._turn, status="interrupted", steps=0,
                                      model=self.session.active_model, usage={}, content="")
@@ -309,7 +315,7 @@ class Headless:
             if outcome.status == "incomplete":
                 self.writer.emit("notice", message=f"reply cut off: {outcome.error}; the content is partial")
             self.writer.emit("turn_end", turn=self._turn, status=outcome.status, steps=outcome.steps,
-                             model=self.session.active_model, usage=self.session.last_usage,
+                             model=self.session.active_model, usage=_turn_usage(self.session),
                              cost=self._turn_cost(before), cost_session=self._session_cost(),
                              content=outcome.content, error=outcome.error)
         except ScootError as exc:

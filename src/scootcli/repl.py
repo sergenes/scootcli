@@ -76,6 +76,8 @@ class ReplSession:
         self.last_usage: dict = {}
         self.total_prompt = 0
         self.total_completion = 0
+        self.turn_prompt = 0       # tokens this turn (reset at each run_turn); the whole turn, not the last call
+        self.turn_completion = 0
         self._available: List[str] = None
         self.bad_models: set = set()  # models that returned "unavailable" this session
         self.worktree = None  # active git worktree (M5.1b), if any
@@ -124,6 +126,7 @@ class ReplSession:
             approval_mode=self.approval_mode,
             total_prompt=self.total_prompt,
             total_completion=self.total_completion,
+            usage_by_model=dict(self.usage_by_model),
             messages=self.messages,
         )
 
@@ -161,6 +164,7 @@ class ReplSession:
             self.active_model = record.active_model or self.active_model
         self.total_prompt = record.total_prompt
         self.total_completion = record.total_completion
+        self.usage_by_model = dict(getattr(record, "usage_by_model", {}) or {})  # so resumed cost is not 0
         self.messages = complete_tool_results(list(record.messages))
         self.resumed = True
 
@@ -226,11 +230,27 @@ class ReplSession:
 
         self.messages.clear()
         self.last_usage = {}
+        # A fresh conversation starts fresh accounting too (was left cumulative before).
+        self.total_prompt = 0
+        self.total_completion = 0
+        self.turn_prompt = 0
+        self.turn_completion = 0
+        self.usage_by_model = {}
         self.plan = []  # drop the progress checklist so the bar's ◇ segment clears too
         # Start a brand-new session id so a fresh conversation gets its own saved file.
         self.id = sessions.new_session_id()
         self.created = time.time()
         self.resumed = False
+
+    def start_turn(self) -> None:
+        """Zero the per-turn counters; the agent calls this at the top of each turn."""
+        self.turn_prompt = 0
+        self.turn_completion = 0
+
+    def turn_usage(self) -> dict:
+        """Token usage for the whole current turn (every model call in it), not just the last call."""
+        return {"prompt_tokens": self.turn_prompt, "completion_tokens": self.turn_completion,
+                "total_tokens": self.turn_prompt + self.turn_completion}
 
     def account(self, usage: dict, model: str = "") -> None:
         self.last_usage = usage or {}
@@ -238,6 +258,8 @@ class ReplSession:
         completion = int((usage or {}).get("completion_tokens", 0) or 0)
         self.total_prompt += prompt
         self.total_completion += completion
+        self.turn_prompt += prompt
+        self.turn_completion += completion
         from .pricing import cached_tokens
 
         key = model or getattr(self, "active_model", "") or "?"
@@ -789,7 +811,7 @@ class Repl:
             from .vision import fold_images_into_text
 
             return fold_images_into_text(
-                user_text, self.session.config, self.session.provider, ui=self.ui,
+                user_text, self.session.config, self.session.provider, ui=self.ui, session=self.session,
             )
         except Interrupted:
             raise
@@ -1028,7 +1050,7 @@ class Repl:
                     print(_assistant_label(self.ui.emoji))
                 print(answer)
             if session.config.verbose:
-                u = session.last_usage
+                u = session.turn_usage()
                 eprint(color(
                     f"[{session.resolved_model()}] steps={outcome.steps} "
                     f"prompt={u.get('prompt_tokens', '?')} "

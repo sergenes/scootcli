@@ -64,19 +64,29 @@ The remaining high-priority findings of the same review, the ones that change be
 - The README security section says what is true: file tools are scoped, shell commands run with the user's normal access, the denylist is an accident guard (R03). The `yolo` default stays; `rm -r -f` and `git -C x push --force` join the denylist's normalisation.
 - The stdlib search fallback and the workspace map skip symlinks and hidden or ignored files (R07); session redaction reaches tool arguments and replay items (R13); session ids are validated as basenames and malformed records are skipped on listing (R17).
 
-## 0.11.0: machine interfaces and small corrections (in progress)
+## 0.11.0: clean edges (released 2026-09-09)
 
-The review's medium findings. Shipped on `dev`:
+The review's medium findings, making the machine-facing and resource edges predictable and safe. Validated against the agents-at-work agent with no breakage. Closes the outside review across 0.9.0, 0.10.0, and 0.11.0.
 
-- ✅ One-shot `--json` is exactly one JSON object on every exit path, diagnostics to stderr (R18).
-- ✅ `--root` resolved before the `.env` search (0.10.0), and the `[A]` key and headless request ids (0.10.0); "allow this path" now lasts one call, not the session (R20).
-- ✅ Untrusted terminal control characters stripped from diffs, tool output, transcript, and model text (R21).
-- ✅ A fallback cycle that cannot alternate between two unavailable models (R16).
-- ✅ ripgrep errors told apart from "no matches"; numeric config settings validated; `AGENTS.md` read bounded (R15).
-- ✅ A shared atomic JSON writer for credentials, preferences, and sessions.
-- ✅ Bounded subprocess capture (R15): `run_shell`, ripgrep, and hook output are drained by reader threads into a 512 KB-per-stream buffer, so a runaway command is killed at the timeout instead of exhausting memory; process-group cancellation is unchanged.
+- One-shot `--json` is exactly one JSON object on every exit path, diagnostics to stderr (R18).
+- Untrusted terminal control characters stripped from diffs, tool output, transcript, and model text (R21).
+- A fallback cycle that cannot alternate between two unavailable models (R16).
+- "Allow this path" lasts one tool call, not the session; the `[A]` key and headless request ids shipped in 0.10.0 (R20).
+- Bounded reads and captured output (R15): `read_file` refuses special files and reads the cap plus one byte, `run_shell`/ripgrep/hook output are drained into a 512 KB-per-stream buffer so a runaway command is killed at the timeout, and `AGENTS.md` is read with a cap.
+- ripgrep errors told apart from "no matches", numeric config settings validated, and one shared atomic JSON writer for credentials, preferences, and sessions.
 
-Code-complete; ready for a local test and release.
+## 0.12.0: honest numbers (released 2026-09-10)
+
+The review's remaining P2/P3 corrections. Shipped on `dev`:
+
+- Whole-turn usage in `turn_end`, `--json`, and `--verbose`; per-model cost persisted across resume and cleared on `/reset`; vision and classifier calls accounted.
+- Auto vision prefers the selected model's provider; image descriptions keep their original number; image-path detection no longer mangles the surrounding prompt.
+- Test fixture clears all scoot/provider/proxy variables and cleans up its temp dir.
+
+Deferred to a later release (both can affect the agents-at-work bridge, so they get their own careful commit):
+
+- Proactive, shared compaction before large requests (a summarization round-trip and message rewrite now also in headless).
+- One config-directory resolver across `.env`, hooks, keys, and preferences: must preserve the exact global `~/.config/scoot/hooks.json` path the bridge depends on.
 
 ## Later, as configuration rows
 

@@ -4,6 +4,14 @@ All notable changes to `scoot`. Format loosely follows [Keep a Changelog](https:
 Versions before 0.1.0 were internal builds of the tool's predecessor, renumbered `0.0.N` here and trimmed to what still describes the public tool.
 What comes next lives in [`ROADMAP.md`](./ROADMAP.md); the behaviour spec in [`SPEC.md`](SPEC.md); design notes in [`DESIGN.md`](./DESIGN.md).
 
+## [0.12.0] — honest numbers (2026-09-10)
+- **Accurate turn usage.** `turn_end.usage`, one-shot `--json` usage, and `--verbose` now report the whole turn's tokens, not just the last model call.
+- **Per-model cost survives resume; reset clears it.** Per-model token totals are saved with the session, so a resumed session shows its real cost instead of zero; `/reset` now clears the cumulative accounting instead of carrying it forward.
+- **Vision and classifier calls are accounted.** Image-description and router-classifier calls now count toward session usage and cost, so `/status` and the machine cost fields are complete.
+- **Auto vision stays on the selected provider.** When the vision model is `auto`, scoot prefers a vision-capable model from the selected model's own provider, so a local session no longer silently sends an image to a hosted provider; set `SCOOT_VISION_MODEL` to override.
+- **Image descriptions keep their number and the prompt is left intact.** Skipping an oversized image no longer renumbers the rest, so the `[Image N]` labels keep matching the badges; detecting an image path no longer collapses the prompt's line breaks or unescapes backslashes in the surrounding text.
+- **Tighter test isolation.** The test fixture clears every scoot, provider-key, and proxy variable (both cases) and removes its temp directory afterward.
+
 ## [0.11.0] — clean edges (2026-09-09)
 - **One-shot `--json` is exactly one JSON object (R18).** The JSON path used the interactive UI, so plan updates and approval prompts printed to stdout before the final object, and a hook-blocked prompt produced no JSON at all. A quiet one-shot UI now sends every diagnostic to stderr and declines an approval it cannot ask, and stdout carries the single result object on every exit path.
 - **Untrusted terminal control sequences are stripped (R21).** File diffs, tool output, replayed transcript, and model output (streamed or buffered) had ANSI and control bytes passed through, so a malicious file or reply could recolour the screen or hide an approval preview. Such text is now sanitised before display, keeping tabs and newlines, with split escapes handled across stream chunks.
