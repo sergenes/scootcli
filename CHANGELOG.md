@@ -4,6 +4,11 @@ All notable changes to `scoot`. Format loosely follows [Keep a Changelog](https:
 Versions before 0.1.0 were internal builds of the tool's predecessor, renumbered `0.0.N` here and trimmed to what still describes the public tool.
 What comes next lives in [`ROADMAP.md`](./ROADMAP.md); the behaviour spec in [`SPEC.md`](SPEC.md); design notes in [`DESIGN.md`](./DESIGN.md).
 
+## [0.13.0] — keeping up (2026-09-11)
+- **The status bar keeps up during a long turn.** It was redrawn only at the prompt, so context, tokens, and message count looked frozen through a multi-step turn. It now repaints after each streamed model call and each tool run, and shows a per-turn `⚒ N` tool-call counter (reset every turn, so it never desyncs across resume). Interactive only; headless and the machine interfaces are unchanged.
+- **Long turns compact before they overflow.** Compaction was reactive and REPL-only; a single large turn could exceed the model's window. A context check now runs before each model request in the shared loop (REPL, headless, and one-shot), keeping the most recent turn verbatim, summarizing what came before, and bounding the text sent for summarization. The summarization call is counted in usage and cost.
+- **One config directory, resolved the same way everywhere.** `.env`, hooks, saved keys, and preferences now resolve their directory identically: `SCOOT_CONFIG_DIR`, else `XDG_CONFIG_HOME/scoot`, else `~/.config/scoot`. The hooks path is unchanged for the common cases; saved keys and preferences now honor `XDG_CONFIG_HOME` when it is set, and fall back to reading the legacy `~/.config/scoot` so no one has to re-authenticate.
+
 ## [0.12.0] — honest numbers (2026-09-10)
 - **Accurate turn usage.** `turn_end.usage`, one-shot `--json` usage, and `--verbose` now report the whole turn's tokens, not just the last model call.
 - **Per-model cost survives resume; reset clears it.** Per-model token totals are saved with the session, so a resumed session shows its real cost instead of zero; `/reset` now clears the cumulative accounting instead of carrying it forward.

@@ -13,21 +13,31 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from .config import SCOOT_CONFIG_DIR
+from . import config as _config
 
 
 def _config_dir() -> Path:
-    override = os.environ.get("SCOOT_CONFIG_DIR")
-    return Path(override).expanduser() if override else SCOOT_CONFIG_DIR
+    return _config.config_dir()
 
 
 def _prefs_file() -> Path:
     return _config_dir() / "preferences.json"
 
 
+def _read_path() -> Path:
+    """Prefer the config dir; fall back to the legacy ``~/.config/scoot`` for an XDG user (see
+    ``credentials._read_path``)."""
+    primary = _prefs_file()
+    if not primary.exists() and not os.environ.get("SCOOT_CONFIG_DIR"):
+        legacy = _config.legacy_config_dir() / "preferences.json"
+        if legacy != primary and legacy.exists():
+            return legacy
+    return primary
+
+
 def load_preferences() -> dict:
     try:
-        data = json.loads(_prefs_file().read_text())
+        data = json.loads(_read_path().read_text())
         return data if isinstance(data, dict) else {}
     except (OSError, json.JSONDecodeError, ValueError):
         return {}

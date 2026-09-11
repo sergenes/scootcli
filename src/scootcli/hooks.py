@@ -73,12 +73,9 @@ def enabled() -> bool:
 
 
 def global_path() -> Path:
-    override = os.environ.get("SCOOT_CONFIG_DIR")
-    if override:
-        return Path(override).expanduser() / "hooks.json"
-    from .config import _config_home
+    from .config import config_dir
 
-    return _config_home() / "hooks.json"
+    return config_dir() / "hooks.json"
 
 
 def project_path(root) -> Path:

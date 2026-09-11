@@ -53,6 +53,49 @@ def _render_conversation(messages) -> str:
     return "\n".join(parts)
 
 
+_KEEP_TAIL = 1                    # keep at least the last user turn verbatim when compacting proactively
+_SUMMARY_INPUT_CAP = 100_000     # chars of older conversation sent for summarization (keep it bounded)
+
+
+def maybe_compact(session, cfg, cancel_event: Optional[threading.Event] = None) -> bool:
+    """Before a model request, compact when the context estimate exceeds ``cfg.compact_at``.
+
+    Unlike ``/compact`` (which collapses the whole conversation), this keeps the most recent user turn
+    verbatim and summarizes only what came before it, and it bounds the text sent for summarization so
+    the summarization call itself cannot overflow the context. Best-effort: on any error nothing
+    changes and the turn proceeds. Returns True when it compacted.
+    """
+    threshold = int(getattr(cfg, "compact_at", 100_000) or 100_000)
+    msgs = getattr(session, "messages", None) or []
+    if not msgs or estimate_context_tokens(session) <= threshold:
+        return False
+    # Split at the last user message so the kept tail begins cleanly (never orphaning a tool result).
+    tail_start = next((i for i in range(len(msgs) - 1, -1, -1) if msgs[i].get("role") == "user"), 0)
+    older, recent = msgs[:tail_start], msgs[tail_start:]
+    if not older:
+        return False  # only one turn present; nothing older to summarize
+    conversation = _render_conversation(older)[:_SUMMARY_INPUT_CAP]
+    try:
+        result = session.provider.chat(
+            [{"role": "system", "content": _COMPACT_SYSTEM}, {"role": "user", "content": conversation}],
+            model=session.active_model, max_tokens=900, cancel_event=cancel_event,
+        )
+    except Exception:
+        return False
+    try:
+        session.account(result.usage, model=session.active_model)
+    except Exception:
+        pass
+    summary = (result.content or "").strip()
+    if not summary:
+        return False
+    session.messages = [
+        {"role": "user", "content": "Summary of earlier conversation (context was compacted):\n" + summary},
+        *recent,
+    ]
+    return True
+
+
 def compact(session, cancel_event: Optional[threading.Event] = None) -> str:
     """Summarize and replace the session's messages. Returns the summary text (or "" if nothing)."""
     if not session.messages:

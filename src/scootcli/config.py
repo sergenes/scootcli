@@ -47,10 +47,26 @@ STATE_DIR = Path.home() / ".local/state/scoot"
 SESSION_RETENTION = 20  # keep only the most recent N sessions on disk
 
 
+def config_dir() -> Path:
+    """scoot's config directory, resolved one consistent way everywhere (.env, hooks, keys, prefs):
+    ``SCOOT_CONFIG_DIR`` if set, else ``XDG_CONFIG_HOME/scoot`` if set, else ``~/.config/scoot``."""
+    override = os.environ.get("SCOOT_CONFIG_DIR")
+    if override:
+        return Path(override).expanduser()
+    base = os.environ.get("XDG_CONFIG_HOME")
+    if base:
+        return Path(base).expanduser() / "scoot"
+    return Path.home() / ".config" / "scoot"
+
+
+def legacy_config_dir() -> Path:
+    """The pre-0.13.0 default (``~/.config/scoot``); read as a fallback so an XDG user keeps their keys."""
+    return Path.home() / ".config" / "scoot"
+
+
 def _config_home() -> Path:
-    """User config dir for scoot (honours XDG_CONFIG_HOME)."""
-    base = os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config")
-    return Path(base) / "scoot"
+    """Backwards-compatible alias for :func:`config_dir`."""
+    return config_dir()
 
 
 ENV_FILE_NAME = ".env"

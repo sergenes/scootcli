@@ -16,15 +16,25 @@ from . import config as _config
 
 
 def _file() -> Path:
-    override = os.environ.get("SCOOT_CONFIG_DIR")
-    if override:
-        return Path(override).expanduser() / "credentials.json"
-    return _config.CREDENTIALS_FILE
+    """Where credentials are written: the unified config dir."""
+    return _config.config_dir() / "credentials.json"
+
+
+def _read_path() -> Path:
+    """Where to read credentials from: the config dir, or the legacy ``~/.config/scoot`` when the
+    config dir came from ``XDG_CONFIG_HOME`` (not an explicit ``SCOOT_CONFIG_DIR``) and has no file
+    yet, so a user who set XDG keeps their pre-0.13.0 keys without re-authenticating."""
+    primary = _file()
+    if not primary.exists() and not os.environ.get("SCOOT_CONFIG_DIR"):
+        legacy = _config.legacy_config_dir() / "credentials.json"
+        if legacy != primary and legacy.exists():
+            return legacy
+    return primary
 
 
 def _load() -> Dict[str, str]:
     try:
-        data = json.loads(_file().read_text())
+        data = json.loads(_read_path().read_text())
     except (OSError, json.JSONDecodeError):
         return {}
     keys = data.get("keys") if isinstance(data, dict) else None

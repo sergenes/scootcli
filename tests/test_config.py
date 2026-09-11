@@ -18,6 +18,7 @@ def _touch(path: Path, text: str = "SCOOT_X=1\n") -> Path:
 
 def _home(monkeypatch, tmp_path) -> Path:
     home = tmp_path / "xdg"
+    monkeypatch.delenv("SCOOT_CONFIG_DIR", raising=False)  # so XDG resolves the config dir (unified rule)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(home))
     return home / "scoot"
 
@@ -157,7 +158,7 @@ def test_project_env_cannot_redirect_requests_or_widen_permissions(monkeypatch, 
 
 
 def test_global_env_still_sets_base_url_and_proxy(monkeypatch, tmp_path):
-    for k in ("SCOOT_OPENAI_BASE_URL", "HTTPS_PROXY", "SCOOT_APPROVAL"):
+    for k in ("SCOOT_OPENAI_BASE_URL", "HTTPS_PROXY", "SCOOT_APPROVAL", "SCOOT_CONFIG_DIR"):
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
     home = tmp_path / "xdg" / "scoot"
@@ -211,3 +212,46 @@ def test_numeric_config_values_are_validated(monkeypatch, tmp_path):
     monkeypatch.delenv("SCOOT_MAX_STEPS")
     monkeypatch.setenv("SCOOT_TIMEOUT", "90")  # a valid value still works
     assert config.Config.load().timeout == 90
+
+
+# ── 0.13.0: one config-directory resolver (item A) ───────────────────────────────
+def test_config_dir_precedence(monkeypatch, tmp_path):
+    monkeypatch.setenv("SCOOT_CONFIG_DIR", str(tmp_path / "explicit"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    assert config.config_dir() == tmp_path / "explicit"          # explicit wins
+    monkeypatch.delenv("SCOOT_CONFIG_DIR")
+    assert config.config_dir() == tmp_path / "xdg" / "scoot"     # then XDG
+    monkeypatch.delenv("XDG_CONFIG_HOME")
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    assert config.config_dir() == tmp_path / "home" / ".config" / "scoot"   # then ~/.config
+
+
+def test_hooks_env_keys_prefs_share_the_config_dir(monkeypatch, tmp_path):
+    from scootcli import credentials, preferences
+    from scootcli.hooks import global_path
+
+    d = tmp_path / "cfg"
+    monkeypatch.setenv("SCOOT_CONFIG_DIR", str(d))
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    assert global_path() == d / "hooks.json"
+    assert config.global_env_path() == d / ".env"
+    credentials.save_key("openai", "sk-test-000000000000")
+    assert (d / "credentials.json").exists()
+    preferences.save_preference("logo", True)
+    assert (d / "preferences.json").exists()
+
+
+def test_credentials_legacy_fallback_for_xdg_users(monkeypatch, tmp_path):
+    from scootcli import credentials
+
+    monkeypatch.delenv("SCOOT_CONFIG_DIR", raising=False)  # XDG-only, the migration case
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    legacy = tmp_path / "home" / ".config" / "scoot"
+    legacy.mkdir(parents=True)
+    (legacy / "credentials.json").write_text('{"keys": {"openai": "sk-legacy-000000000000"}}')
+    # No file at the new XDG path yet, so the legacy key is still found (no re-auth).
+    assert credentials.load_key("openai") == "sk-legacy-000000000000"
+    # A write lands at the new config dir, migrating forward.
+    credentials.save_key("anthropic", "sk-ant-000000000000")
+    assert (tmp_path / "xdg" / "scoot" / "credentials.json").exists()

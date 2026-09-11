@@ -78,6 +78,7 @@ class ReplSession:
         self.total_completion = 0
         self.turn_prompt = 0       # tokens this turn (reset at each run_turn); the whole turn, not the last call
         self.turn_completion = 0
+        self.turn_tool_calls = 0   # tools executed this turn (reset at each run_turn); shown live in the bar
         self._available: List[str] = None
         self.bad_models: set = set()  # models that returned "unavailable" this session
         self.worktree = None  # active git worktree (M5.1b), if any
@@ -246,6 +247,7 @@ class ReplSession:
         """Zero the per-turn counters; the agent calls this at the top of each turn."""
         self.turn_prompt = 0
         self.turn_completion = 0
+        self.turn_tool_calls = 0
 
     def turn_usage(self) -> dict:
         """Token usage for the whole current turn (every model call in it), not just the last call."""
@@ -354,15 +356,26 @@ class ReplUI:
 
     LEVELS = ("full", "compact", "quiet")
 
-    def __init__(self, labels: bool = True, verbosity: str = "full", emoji: bool = True):
+    def __init__(self, labels: bool = True, verbosity: str = "full", emoji: bool = True, on_refresh=None):
         self.labels = labels
         self.emoji = emoji  # 🛴 label, or ⏺ when the terminal has no emoji font
+        self._on_refresh = on_refresh  # repaint the status bar live after each model call / tool run
         self.note_requested = threading.Event()  # Ctrl-N during a turn; taken at the next model call
         self.verbosity = verbosity if verbosity in self.LEVELS else "full"
         self._tty = sys.stdout.isatty()
         self._transient = False  # a transient line is currently on screen (no trailing newline)
         self._labelled = False   # the ⏺ scoot lead-in has been printed for the current turn
         self._tool_line = None   # pending tool-in-use line, pinned above the spinner by activity()
+
+    def _refresh(self) -> None:
+        """Repaint the status bar mid-turn so ct/tokens/messages/tools do not look frozen. Fired only
+        at completion boundaries (after a streamed call or a tool), never between token deltas."""
+        if self._on_refresh is None or not self._tty:
+            return
+        try:
+            self._on_refresh()
+        except Exception:
+            pass  # a live repaint must never break the turn
 
     def begin_turn(self) -> None:
         """Reset per-turn state so the ⏺ scoot label prints once at the next assistant output."""
@@ -448,6 +461,7 @@ class ReplUI:
             if tool_line and self._tty and self.verbosity != "full":
                 sys.stdout.write("\033[1A\r\033[K")  # step up onto the tool row and erase it
                 sys.stdout.flush()
+            self._refresh()  # bar catches up with the new tool count / tokens / messages
 
     @contextmanager
     def stream(self, cancel_event: threading.Event):
@@ -463,6 +477,7 @@ class ReplUI:
             if not printer.started:
                 status.stop()
             printer.close()
+            self._refresh()  # bar catches up with the tokens this call added
 
     def assistant(self, text: str) -> None:
         # Intermediate narration ("I'll read X, then edit Y") — transient on a TTY (overwritten by
@@ -587,7 +602,7 @@ class Repl:
         self.agent = Agent(config, provider)
         self.labels = getattr(config, "labels", True)
         self.ui = ReplUI(labels=self.labels, verbosity=getattr(config, "verbosity", "full"),
-                         emoji=getattr(config, "emoji", True))
+                         emoji=getattr(config, "emoji", True), on_refresh=self._refresh_bar)
         # The "dock" pins the prompt to a fixed bottom row; it needs the bar's reserved region and a
         # real TTY. When off (flag/env/non-TTY), we fall back to a plain inline input().
         panel_on = getattr(config, "panel", True)
@@ -819,9 +834,12 @@ class Repl:
             return user_text
 
     def _refresh_bar(self) -> None:
+        from .status import paint_lock
+
         try:
-            self._user = self._auth_user()
-            self.bar.render(build_status_text(self.session, self._user))
+            with paint_lock:  # serialize with a SIGWINCH repaint now that this also fires mid-turn
+                self._user = self._auth_user()
+                self.bar.render(build_status_text(self.session, self._user))
         except Exception:
             pass  # the bar must never break the REPL
 
