@@ -99,6 +99,9 @@ def build_status_text(session, user: Optional[str] = None) -> str:
     msgs = getattr(session, "messages", None)
     if msgs:
         segments.append(f"✉ {len(msgs)}")
+    tools_run = getattr(session, "turn_tool_calls", 0)
+    if tools_run:
+        segments.append(f"⚒ {tools_run}")
     if getattr(session, "worktree", None) is not None:
         segments.append(f"⑂ {session.worktree.branch}")
     plan = getattr(session, "plan", None)

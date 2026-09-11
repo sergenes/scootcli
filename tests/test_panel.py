@@ -115,3 +115,12 @@ if __name__ == "__main__":
     print(f"\n{passed} passed")
 
 
+
+
+# ── 0.13.0: live per-turn tool-call segment (bar refresh) ───────────────────────
+def test_build_status_text_shows_turn_tool_calls():
+    session = _Session()
+    session.messages = [{"role": "user", "content": "hi"}]
+    assert "⚒" not in build_status_text(session, user="jdoe")  # nothing until a tool runs
+    session.turn_tool_calls = 3
+    assert "⚒ 3" in build_status_text(session, user="jdoe")

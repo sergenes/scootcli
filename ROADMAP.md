@@ -88,6 +88,14 @@ Deferred to a later release (both can affect the agents-at-work bridge, so they 
 - Proactive, shared compaction before large requests (a summarization round-trip and message rewrite now also in headless).
 - One config-directory resolver across `.env`, hooks, keys, and preferences: must preserve the exact global `~/.config/scoot/hooks.json` path the bridge depends on.
 
+## 0.13.0: keeping up (released 2026-09-11)
+
+The review's last two corrections plus a status-bar polish. Verified safe for the agents-at-work bridge before release.
+
+- One config-directory resolver (`SCOOT_CONFIG_DIR` → `XDG_CONFIG_HOME/scoot` → `~/.config/scoot`) for `.env`, hooks, keys, and preferences; the hooks path is unchanged for the common cases, and keys/prefs fall back to the legacy `~/.config/scoot` so no re-auth is needed.
+- Proactive, shared compaction before each model request in the REPL, headless, and one-shot, keeping the most recent turn verbatim and bounding the summarized text.
+- The status bar repaints live during a long turn and shows a per-turn `⚒ N` tool-call counter (interactive only).
+
 ## Later, as configuration rows
 
 - xAI (Grok), Groq, OpenRouter, LM Studio, vLLM: each is a `ProviderSpec` once its Responses or Chat Completions support is checked.

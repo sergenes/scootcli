@@ -277,3 +277,90 @@ def test_turn_usage_sums_the_whole_turn_not_the_last_call():
         assert outcome.status == "done"
         # last call was 130/15, but the turn is the sum of both calls.
         assert session.turn_usage() == {"prompt_tokens": 230, "completion_tokens": 35, "total_tokens": 265}
+
+
+def test_proactive_compaction_runs_before_a_large_request():
+    """Item B: when the context is over the threshold, the agent compacts before the model call,
+    in the shared loop (so headless and one-shot get it too)."""
+    from scootcli.config import Config
+    from scootcli.repl import ReplSession
+
+    with tempfile.TemporaryDirectory() as d:
+        cfg = Config().override(root=d, workspace_context=False, stream=False, compact_at=50)
+        # A summary call, then the real answer.
+        summary = ChatResult(content="SUMMARY of the earlier chat", model="m", usage={"prompt_tokens": 20, "completion_tokens": 10})
+        answer = ChatResult(content="done.\nDONE", model="m", usage={"prompt_tokens": 5, "completion_tokens": 3})
+        agent = Agent(cfg, FakeClient([summary, answer]))
+        session = ReplSession(cfg, None)
+        session.provider = agent.provider  # compact() calls session.provider.chat
+        # A big history so the char-estimate exceeds compact_at=50, ending on a user turn.
+        session.messages = [{"role": "user", "content": "x" * 400},
+                            {"role": "assistant", "content": "y" * 400},
+                            {"role": "user", "content": "now finish"}]
+        outcome = agent.run_turn(session, HeadlessUI(Decision.APPROVE))
+        assert outcome.status == "done"
+        # The older turns were replaced by a summary; the last user turn is kept verbatim.
+        assert session.messages[0]["content"].startswith("Summary of earlier conversation")
+        assert any(m.get("content") == "now finish" for m in session.messages)
+        assert "SUMMARY of the earlier chat" in session.messages[0]["content"]
+
+
+def test_no_compaction_under_the_threshold():
+    from scootcli.config import Config
+    from scootcli.repl import ReplSession
+
+    with tempfile.TemporaryDirectory() as d:
+        cfg = Config().override(root=d, workspace_context=False, stream=False, compact_at=100000)
+        agent = Agent(cfg, FakeClient([ChatResult(content="ok.\nDONE", model="m")]))
+        session = ReplSession(cfg, None)
+        session.provider = agent.provider
+        session.messages = [{"role": "user", "content": "short"}]
+        outcome = agent.run_turn(session, HeadlessUI(Decision.APPROVE))
+        assert outcome.status == "done"
+        assert session.messages[0]["content"] == "short"  # untouched
+
+
+def test_agent_counts_executed_tools_per_turn():
+    """0.13.0: turn_tool_calls tracks tools run this turn, for the live status bar."""
+    from scootcli.config import Config
+    from scootcli.repl import ReplSession
+
+    with tempfile.TemporaryDirectory() as d:
+        cfg = Config().override(root=d, workspace_context=False, stream=False)
+        agent = Agent(cfg, FakeClient([
+            _toolcall("list_dir", {"path": "."}, "c1"),
+            _toolcall("list_dir", {"path": "."}, "c2"),
+            ChatResult(content="done.\nDONE", model="m"),
+        ]))
+        session = ReplSession(cfg, None)
+        session.messages.append({"role": "user", "content": "go"})
+        outcome = agent.run_turn(session, HeadlessUI(Decision.APPROVE))
+        assert outcome.status == "done"
+        assert session.turn_tool_calls == 2  # two tools ran; start_turn zeroed it first
+        # A second turn resets the count.
+        agent2 = Agent(cfg, FakeClient([ChatResult(content="ok.\nDONE", model="m")]))
+        session.messages.append({"role": "user", "content": "again"})
+        agent2.run_turn(session, HeadlessUI(Decision.APPROVE))
+        assert session.turn_tool_calls == 0
+
+
+def test_replui_refreshes_the_bar_at_completion_boundaries():
+    """0.13.0: ReplUI fires on_refresh after a streamed call and after an activity (tool/model)."""
+    import threading
+
+    from scootcli.repl import ReplUI
+
+    calls = []
+    ui = ReplUI(on_refresh=lambda: calls.append(1))
+    ui._tty = True  # the refresh is gated on a TTY, which pytest's captured stdout is not
+    with ui.activity("running…", threading.Event()):
+        pass
+    assert len(calls) == 1
+    with ui.stream(threading.Event()):
+        pass
+    assert len(calls) == 2
+    # No callback: nothing fires, nothing breaks.
+    quiet = ReplUI()
+    quiet._tty = True
+    with quiet.activity("x", threading.Event()):
+        pass

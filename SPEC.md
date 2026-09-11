@@ -49,7 +49,8 @@ Readiness is checked for the provider of the active model, at start and again af
 ## 4. Configuration
 
 4.1 Precedence, highest first: CLI flag, environment variable, project `.env`, global `~/.config/scoot/.env`, default.
-4.2 The project `.env` is the nearest `.env` found walking up from the workspace root (`--root` when given, else the current directory); the global file honours `XDG_CONFIG_HOME`.
+4.2 The project `.env` is the nearest `.env` found walking up from the workspace root (`--root` when given, else the current directory); the global file lives in scoot's config directory.
+4.2a scoot resolves its config directory one way everywhere (global `.env`, hooks, saved keys, preferences): `SCOOT_CONFIG_DIR` if set, else `XDG_CONFIG_HOME/scoot` if set, else `~/.config/scoot`; saved keys and preferences also read the legacy `~/.config/scoot` as a fallback so setting `XDG_CONFIG_HOME` does not orphan them.
 4.3 Only keys named `SCOOT_*`, the providers' key variables, and `HTTPS_PROXY` / `NO_PROXY` are imported from a `.env` file; other keys are ignored.
 4.3a The project `.env` gets a narrower allowlist than the global one: it may not set `SCOOT_<PROVIDER>_BASE_URL`, `HTTPS_PROXY` / `NO_PROXY`, `SCOOT_APPROVAL`, `SCOOT_SCOPE`, `SCOOT_ROOT`, `SCOOT_HOOKS`, `SCOOT_CONFIG_DIR`, or `SCOOT_STATE_DIR`.
 A project value for one of them is ignored and named in a notice at start (`Config.ignored_project_keys`), so a cloned repository cannot redirect an authenticated request, run code, widen what the tools may touch, or move scoot's files.
@@ -113,7 +114,7 @@ A commit or merge that fails keeps the worktree, the branch, and the session in 
 8.1 The banner shows the mascot with the version, active model, workspace root, a resume hint or the resumed session, and key hints; `--no-logo` shows a plain box.
 8.2 Input is a fixed bottom dock with full line editing, history recall, bracketed paste, growth up to six rows for long lines, and Tab completion of slash commands; without a TTY, a plain prompt is used.
 8.2a The spinner shows the elapsed time after three seconds and, after thirty, a reminder that Ctrl-C forces a stop.
-8.3 The bottom status bar shows the mascot face (eyes: `o o` idle, `> >` thinking, `- -` stopped), the provider serving the active model (or `not set up`), folder and session id, model (or `none · run /auth`), approval mode, context size and its share of the compaction threshold, cumulative tokens, message count, worktree branch, plan progress, and the last error.
+8.3 The bottom status bar shows the mascot face (eyes: `o o` idle, `> >` thinking, `- -` stopped), the provider serving the active model (or `not set up`), folder and session id, model (or `none · run /auth`), approval mode, context size and its share of the compaction threshold, cumulative tokens, message count, a per-turn executed-tool count, worktree branch, plan progress, and the last error; it repaints during a turn (after each streamed model call and tool run), not only at the prompt.
 8.4 Turns are labelled `❯` for the user and `🛴 scoot` for the assistant (`⏺ scoot` with `--no-emoji`); the assistant label prints once per turn.
 The user's prompt is echoed as a full-width reverse-video band (one band per line), so it reads as distinct from the answer; reverse video adapts to any terminal theme, the band uses the current width so a resize is reflected on the next prompt, and it degrades to a plain `❯`-guttered line without a TTY, under `NO_COLOR`, or with `--no-labels`.
 8.5 `/verbosity full|compact|quiet` controls whether reasoning narration and tool lines stay in the feed.
@@ -123,7 +124,7 @@ Each is a drop-in module in `commands/`.
 
 ## 9. Context and sessions
 
-9.1 When the context estimate passes `SCOOT_COMPACT_AT` (default 100000 tokens), or on `/compact`, the conversation is summarized by the model and replaced by the summary.
+9.1 When the context estimate passes `SCOOT_COMPACT_AT` (default 100000 tokens), the conversation is compacted before the next model request in every mode (REPL, headless, one-shot): the most recent user turn is kept verbatim, everything before it is summarized by the model (the summarized text is bounded), and the summary replaces it; `/compact` compacts on demand.
 9.2 Every turn auto-saves the session to `~/.local/state/scoot/sessions/<id>.json` (mode `0600`), keyed by workspace root, with secrets redacted; the 20 most recent sessions are kept.
 Redaction masks key-shaped strings in message text (string or parts), tool-call arguments, and the text and tool-input copies inside provider replay items; signed or encrypted replay fields (`signature`, `encrypted_content`, `thinking`, `summary`, `data`) are stored as received because the provider rejects a changed byte.
 9.2a A session id is a file basename (letters, digits, `-`, `_`); save, load, list, and delete reject anything else, and a malformed record is skipped when listing without preventing the others from loading.

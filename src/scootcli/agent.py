@@ -199,6 +199,19 @@ class Agent:
         taker = getattr(ui, "take_note", None)
         if callable(taker):
             taker(session)  # a Ctrl-N pressed during the previous activity
+        try:
+            from .context import estimate_context_tokens, maybe_compact
+
+            threshold = int(getattr(cfg, "compact_at", 100_000) or 100_000)
+            if estimate_context_tokens(session) > threshold:  # cheap check; only then spin + summarize
+                with ui.activity("context is large — compacting…", cancel_event):
+                    compacted = maybe_compact(session, cfg, cancel_event)
+                if compacted and hasattr(ui, "assistant"):
+                    ui.assistant("compacted earlier context to fit the model's window.")
+        except Interrupted:
+            raise
+        except Exception:
+            pass  # compaction is best-effort; never block the turn on it
         messages = self._messages(session, cfg)
         hints = {"task_text": self._last_user_text(session), "needs_tools": True, "step": steps}
         if self._streaming and hasattr(ui, "stream") and hasattr(self.provider, "chat_stream"):
@@ -531,6 +544,10 @@ class Agent:
             except Exception as exc:  # a tool must never take down the loop
                 result = ToolResult.fail(f"tool crashed: {exc}")
 
+            try:
+                session.turn_tool_calls += 1  # per-turn count for the live status bar (best-effort)
+            except Exception:
+                pass
             self._handle_result(session, name, result, ui)
             self._post_tool_hook(session, tool, args, result)
             self._append_tool(session, tc_id, self._tool_payload(result))
