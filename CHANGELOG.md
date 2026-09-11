@@ -4,7 +4,7 @@ All notable changes to `scoot`. Format loosely follows [Keep a Changelog](https:
 Versions before 0.1.0 were internal builds of the tool's predecessor, renumbered `0.0.N` here and trimmed to what still describes the public tool.
 What comes next lives in [`ROADMAP.md`](./ROADMAP.md); the behaviour spec in [`SPEC.md`](SPEC.md); design notes in [`DESIGN.md`](./DESIGN.md).
 
-## [Unreleased] — 0.12.0 in progress
+## [0.12.0] — honest numbers (2026-09-10)
 - **Accurate turn usage.** `turn_end.usage`, one-shot `--json` usage, and `--verbose` now report the whole turn's tokens, not just the last model call.
 - **Per-model cost survives resume; reset clears it.** Per-model token totals are saved with the session, so a resumed session shows its real cost instead of zero; `/reset` now clears the cumulative accounting instead of carrying it forward.
 - **Vision and classifier calls are accounted.** Image-description and router-classifier calls now count toward session usage and cost, so `/status` and the machine cost fields are complete.

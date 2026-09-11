@@ -75,7 +75,7 @@ The review's medium findings, making the machine-facing and resource edges predi
 - Bounded reads and captured output (R15): `read_file` refuses special files and reads the cap plus one byte, `run_shell`/ripgrep/hook output are drained into a 512 KB-per-stream buffer so a runaway command is killed at the timeout, and `AGENTS.md` is read with a cap.
 - ripgrep errors told apart from "no matches", numeric config settings validated, and one shared atomic JSON writer for credentials, preferences, and sessions.
 
-## 0.12.0: accounting and vision (in progress)
+## 0.12.0: honest numbers (released 2026-09-10)
 
 The review's remaining P2/P3 corrections. Shipped on `dev`:
 
