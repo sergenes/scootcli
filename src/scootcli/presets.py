@@ -22,10 +22,26 @@ def _edit(paths: List[str], message: Optional[str]) -> str:
     return f"Edit {target}: {instruction}"
 
 
-# name -> (seed builder, needs_message)
+def _test(paths: List[str], message: Optional[str]) -> str:
+    target = " ".join(paths) if paths else "this project"
+    extra = f" Focus: {message}." if message else ""
+    return (f"Run the tests for {target}: find the test command, run it, and report the results."
+            f" If any fail, diagnose and fix them, then re-run to confirm.{extra}")
+
+
+def _review(paths: List[str], message: Optional[str]) -> str:
+    target = " ".join(paths) if paths else "the current changes"
+    extra = f" Focus: {message}." if message else ""
+    return (f"Review {target} for bugs, edge cases, and clarity: read what you need and report findings"
+            f" with file:line references. Do not modify anything.{extra}")
+
+
+# name -> seed builder
 PRESETS: Dict[str, "Callable[[List[str], Optional[str]], str]"] = {
     "explain": _explain,
     "edit": _edit,
+    "test": _test,
+    "review": _review,
 }
 
 

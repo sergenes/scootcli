@@ -5,6 +5,8 @@ Usage:
   * ``scoot "a prompt"``            — one-shot agentic turn (tools + approvals), then exit
   * ``scoot explain <path>``        — preset: explain file(s) (read-only)
   * ``scoot edit <path> -m "..."``  — preset: edit file(s) with an instruction
+  * ``scoot test [path]``           — preset: run the tests and fix failures
+  * ``scoot review [path] -m "..."`` — preset: review file(s), read-only
   * ``scoot models [--provider X]`` — list available models (per provider)
   * ``scoot auth [set|clear <provider>]`` — show provider keys, or save / forget one
 
@@ -80,11 +82,11 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--resume-last", action="store_true",
                         help="Auto-resume the latest session for this directory on launch (resume=auto).")
 
-    # Positional: a reserved word ('models'), a preset ('explain'/'edit'), or a free-form prompt.
+    # Positional: a reserved word ('models'), a preset (explain/edit/test/review), or a free-form prompt.
     parser.add_argument(
         "prompt",
         nargs="*",
-        help="A prompt, the word 'models', or a preset ('explain <path>' / 'edit <path> -m ...').",
+        help="A prompt, the word 'models', or a preset (explain / edit / test / review).",
     )
     return parser
 

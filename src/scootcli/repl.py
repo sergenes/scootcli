@@ -50,6 +50,29 @@ def _is_slash_command(line: str) -> bool:
 
 
 
+def _fmt_elapsed(secs: float) -> str:
+    """A compact elapsed time: ``30s``, ``1m30s``, ``1h05m``."""
+    secs = max(0, int(round(secs)))
+    if secs < 60:
+        return f"{secs}s"
+    m, s = divmod(secs, 60)
+    if m < 60:
+        return f"{m}m{s:02d}s"
+    h, m = divmod(m, 60)
+    return f"{h}h{m:02d}m"
+
+
+def _time_badge(elapsed: "float | None" = None) -> str:
+    """A dim date/time badge: the local time (and date) a turn started or finished. When ``elapsed``
+    is given (the assistant's reply badge), it is appended as ``(30s)``."""
+    import time as _time
+
+    stamp = _time.strftime("%a %b %d · %H:%M")
+    if elapsed is not None:
+        stamp += f" ({_fmt_elapsed(elapsed)})"
+    return color(stamp, "gray")
+
+
 def _user_echo(text: str) -> str:
     """A submitted user prompt echoed as a full-width reverse-video band, distinct from the answer.
 
@@ -733,6 +756,8 @@ class Repl:
             # image paths are shown as compact [Image N] badges; the real path is still processed.
             if self.dock:
                 echo = self._badge_paths(raw)
+                if self.labels and sys.stdout.isatty():
+                    print(_time_badge())  # date/time above the request
                 print(_user_echo(echo) if self.labels else (color("› ", "green") + echo))
             if _is_slash_command(line):
                 if self._handle_command(line) == commands.QUIT:
@@ -1008,10 +1033,11 @@ class Repl:
                 print(color("⏹ interrupted", "yellow"))
                 return  # don't append a half-processed prompt to the conversation
             session.messages.append({"role": "user", "content": user_text})
+            turn_started = time.monotonic()
             while True:
                 cancel = threading.Event()
                 outcome = self.agent.run_turn(session, self.ui, cancel)
-                self._render_outcome(outcome)
+                self._render_outcome(outcome, elapsed=time.monotonic() - turn_started)
                 if outcome.status == "max_steps" and self._ask_continue():
                     continue  # keep going on the same conversation for another batch of steps
                 break
@@ -1057,7 +1083,12 @@ class Repl:
         except (Interrupted, ScootError):
             pass  # best-effort; keep going even if summarization fails
 
-    def _render_outcome(self, outcome: AgentOutcome) -> None:
+    def _reply_badge(self, elapsed: "float | None") -> None:
+        """Print the dim date/time + elapsed badge after the assistant's reply (TTY + labels only)."""
+        if elapsed is not None and self.labels and sys.stdout.isatty():
+            print(_time_badge(elapsed))
+
+    def _render_outcome(self, outcome: AgentOutcome, elapsed: "float | None" = None) -> None:
         session = self.session
         self.ui._commit_line()  # clear any leftover transient step/tool line before permanent output
         if outcome.status == "done":
@@ -1067,6 +1098,7 @@ class Repl:
                 if self.labels and sys.stdout.isatty():
                     print(_assistant_label(self.ui.emoji))
                 print(answer)
+            self._reply_badge(elapsed)
             if session.config.verbose:
                 u = session.turn_usage()
                 eprint(color(
@@ -1081,6 +1113,7 @@ class Repl:
                     print(_assistant_label(self.ui.emoji))
                 print(partial)
             print(color(f"⚠ reply cut off: {outcome.error}. ask it to continue, or split the task.", "yellow"))
+            self._reply_badge(elapsed)
         elif outcome.status == "interrupted":
             print(color("⏹ interrupted", "yellow"))
         elif outcome.status == "aborted":

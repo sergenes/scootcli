@@ -178,3 +178,14 @@ def test_dead_local_server_hint_names_both_hosted_providers_when_none_is_set_up(
         assert False
     except NetworkError as exc:
         assert "/model" in exc.hint and "scoot auth set openai" not in exc.hint
+
+
+def test_setup_help_lists_every_hosted_provider(monkeypatch, tmp_path):
+    from scootcli.providers import registry
+
+    for k in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "XAI_API_KEY", "GROQ_API_KEY", "OLLAMA_API_KEY"):
+        monkeypatch.delenv(k, raising=False)
+    help_text = registry.setup_help()
+    for name in ("openai", "anthropic", "xai", "groq"):
+        assert f"scoot auth set {name}" in help_text  # every hosted provider is offered, not just openai
+    assert "ollama" in help_text  # the local option too

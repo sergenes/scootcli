@@ -83,6 +83,29 @@ def load_builtins() -> None:
         vision_models=("claude",),
         capabilities=frozenset({"tools", "streaming", "vision", "reasoning"}),
     ))
+    # xAI (Grok) and Groq both speak the OpenAI Chat Completions wire. The preferred_models below are a
+    # best-effort default ordering; the live /models list is authoritative for what a key can actually use.
+    register(ProviderSpec(
+        name="xai",
+        base_url="https://api.x.ai/v1",
+        wire="openai_chat",
+        key_env=("XAI_API_KEY",),
+        key_required=True,
+        preferred_models=("grok-code-fast-1", "grok-4", "grok-4-fast", "grok-3"),
+        vision_models=("grok-4", "grok-2-vision"),
+        capabilities=frozenset({"tools", "streaming", "vision", "reasoning", "temperature"}),
+    ))
+    register(ProviderSpec(
+        name="groq",
+        base_url="https://api.groq.com/openai/v1",
+        wire="openai_chat",
+        key_env=("GROQ_API_KEY",),
+        key_required=True,
+        preferred_models=("moonshotai/kimi-k2-instruct", "llama-3.3-70b-versatile",
+                          "openai/gpt-oss-120b", "qwen/qwen3-32b"),
+        vision_models=("meta-llama/llama-4", "llama-3.2-90b-vision"),
+        capabilities=frozenset({"tools", "streaming", "vision", "temperature"}),
+    ))
     _loaded = True
 
 
@@ -108,16 +131,16 @@ def reachable(url: str, timeout: float = 0.3) -> bool:
         return False
 
 
-SETUP_HELP = (
-    "No model provider is ready yet. Set one up:\n"
-    "  scoot auth set openai        hosted, needs an OpenAI API key\n"
-    "  scoot auth set anthropic     hosted, needs an Anthropic API key\n"
-    "  ollama pull llama3.2         local and free (install from https://ollama.com), then run scoot again"
-)
-
-
-SETUP_HINT = ("set up a provider: `scoot auth set openai` or `scoot auth set anthropic` (hosted), "
-              "or `ollama pull llama3.2` after installing https://ollama.com (local)")
+def setup_help() -> str:
+    """The "no provider is ready" guidance, listing every hosted provider from the registry (so a new
+    provider row shows up here automatically) plus the local option."""
+    lines = ["No model provider is ready yet. Set one up:"]
+    for spec in all_specs():
+        if spec.key_required:
+            key = spec.key_env[0] if spec.key_env else f"{spec.name.upper()}_API_KEY"
+            lines.append(f"  scoot auth set {spec.name:<10} hosted, needs {key}")
+    lines.append("  ollama pull llama3.2   local and free (install from https://ollama.com), then run scoot again")
+    return "\n".join(lines)
 
 
 def any_hosted_configured() -> bool:
@@ -139,17 +162,17 @@ def readiness(config, model: Optional[str] = None) -> Tuple[bool, str]:
     name = head if head and get(head) is not None else default_provider_name(config)
     spec = get(name)
     if spec is None:
-        return False, SETUP_HELP
+        return False, setup_help()
     if spec.key_required:
         if is_configured(spec):
             return True, ""
-        return False, SETUP_HELP
+        return False, setup_help()
     url = base_url_for(spec)
     if reachable(url):
         return True, ""
     if any_hosted_configured():
         return False, f"{name} is not running at {url} (start it with `ollama serve`, or pick another provider with --provider)"
-    return False, SETUP_HELP
+    return False, setup_help()
 
 
 def make_provider(name: str, config, transport=None) -> BaseProvider:
