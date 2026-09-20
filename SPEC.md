@@ -17,7 +17,7 @@ Each numbered statement is testable, and most have a network-free test.
 
 2.1 A model id is `provider/model` (`openai/gpt-5.3-codex`, `ollama/llama3.2`).
 A bare model name is resolved against the default provider.
-2.2 Built-in providers are `openai` (OpenAI Responses API, key `OPENAI_API_KEY`, required), `anthropic` (Anthropic Messages API, key `ANTHROPIC_API_KEY`, required, default model `claude-opus-5`), and `ollama` (local Responses API at `http://localhost:11434/v1`, no key).
+2.2 Built-in providers are `openai` (OpenAI Responses API, key `OPENAI_API_KEY`, required), `anthropic` (Anthropic Messages API, key `ANTHROPIC_API_KEY`, required, default model `claude-opus-5`), `xai` (Grok, Chat Completions API at `https://api.x.ai/v1`, key `XAI_API_KEY`, required), `groq` (Chat Completions API at `https://api.groq.com/openai/v1`, key `GROQ_API_KEY`, required), and `ollama` (local Responses API at `http://localhost:11434/v1`, no key).
 2.3 The default provider is `SCOOT_PROVIDER` when set; otherwise the first registered provider that requires a key and has one; otherwise `ollama`.
 2.4 The model preference is `default` unless set: the default provider's first preferred model (`gpt-5.3-codex` for OpenAI, `llama3.2` for Ollama).
 2.5 The `auto` preference routes once per turn, at the first model call, and the turn stays on that model.

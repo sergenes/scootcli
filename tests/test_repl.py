@@ -253,3 +253,15 @@ if __name__ == "__main__":
             passed += 1
     print(f"\n{passed} passed")
 
+
+
+# ── 0.14.0: date/time badges on the user request and the reply ───────────────────
+def test_time_badge_and_elapsed_formatting(monkeypatch):
+    from scootcli import rendering
+    from scootcli.repl import _fmt_elapsed, _time_badge
+
+    assert _fmt_elapsed(0) == "0s" and _fmt_elapsed(30) == "30s"
+    assert _fmt_elapsed(90) == "1m30s" and _fmt_elapsed(3725) == "1h02m"
+    monkeypatch.setattr(rendering, "_COLOR_ENABLED", False)  # inspect the plain text
+    assert "(" not in _time_badge()                       # request badge: date/time only
+    assert _time_badge(30).endswith("(30s)")              # reply badge: adds elapsed

@@ -16,7 +16,7 @@ import pytest
 
 # Every provider key variable and every proxy variable (both cases), so a developer's real
 # environment cannot influence a test through any of them.
-_PROVIDER_KEYS = ("OPENAI_API_KEY", "OLLAMA_API_KEY", "ANTHROPIC_API_KEY")
+_PROVIDER_KEYS = ("OPENAI_API_KEY", "OLLAMA_API_KEY", "ANTHROPIC_API_KEY", "XAI_API_KEY", "GROQ_API_KEY")
 _PROXY_KEYS = ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy",
                "NO_PROXY", "no_proxy", "ALL_PROXY", "all_proxy")
 

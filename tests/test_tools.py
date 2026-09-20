@@ -509,3 +509,14 @@ def test_run_subprocess_bounds_output_without_hanging_on_a_runaway():
     except ToolError as exc:
         assert "timed out" in str(exc)
     assert _time.monotonic() - started < 4  # stopped promptly, did not buffer without end
+
+
+# ── 0.14.0: test + review presets ────────────────────────────────────────────────
+def test_test_and_review_presets_build_prompts():
+    from scootcli import presets
+
+    assert presets.is_preset("test") and presets.is_preset("review")
+    t = presets.build_prompt("test", ["tests/"], None)
+    assert "Run the tests for tests/" in t and "fix" in t.lower()
+    r = presets.build_prompt("review", [], "concurrency")
+    assert "Review the current changes" in r and "Do not modify" in r and "concurrency" in r

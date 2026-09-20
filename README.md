@@ -5,7 +5,7 @@
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/downloads/)
 [![Dependencies: none](https://img.shields.io/badge/dependencies-none-brightgreen.svg)](#install-options)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey.svg)](#install-options)
-[![Providers](https://img.shields.io/badge/providers-OpenAI%20%7C%20Ollama%20%7C%20Anthropic-orange.svg)](#providers-and-models)
+[![Providers](https://img.shields.io/badge/providers-OpenAI%20%7C%20Anthropic%20%7C%20xAI%20%7C%20Groq%20%7C%20Ollama-orange.svg)](#providers-and-models)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
 ```
@@ -18,7 +18,7 @@
 
 `scoot` is a terminal coding agent in plain Python.
 You type what you want in natural language; it reads, searches, edits, and runs things in your repo, asking before anything risky.
-It talks to official model APIs (OpenAI, Anthropic, and a local Ollama for free) and has **zero third-party dependencies**: the whole tool is the Python standard library, and it ships as a single-file zipapp as well as a wheel.
+It talks to official model APIs (OpenAI, Anthropic, xAI, Groq, and a local Ollama for free) and has **zero third-party dependencies**: the whole tool is the Python standard library, and it ships as a single-file zipapp as well as a wheel.
 
 ## Where this comes from
 
@@ -57,7 +57,7 @@ scoot --model ollama/llama3.2
 ```
 
 **First run.** With no key saved and no Ollama running, scoot still opens: the banner says "no provider set up yet", a short block lists the three ways to set one up, and the bar shows `not set up` until a provider can answer.
-Run `scoot auth set openai` (or `anthropic`) inside the REPL and the bar switches to the real provider and model at once.
+Run `scoot auth set openai` (or `anthropic`, `xai`, `groq`) inside the REPL and the bar switches to the real provider and model at once.
 
 The first prompt:
 
@@ -82,6 +82,8 @@ A bare name means the default provider, which is the first provider that has a k
 | `openai` | OpenAI Responses API | `OPENAI_API_KEY` | `gpt-5.3-codex` |
 | `ollama` | local Ollama, Responses API | none | `llama3.2` |
 | `anthropic` | Anthropic Messages API | `ANTHROPIC_API_KEY` | `claude-opus-5` |
+| `xai` | xAI (Grok), Chat Completions API | `XAI_API_KEY` | `grok-code-fast-1` |
+| `groq` | Groq, Chat Completions API | `GROQ_API_KEY` | `moonshotai/kimi-k2-instruct` |
 
 ```bash
 scoot models                         # every configured provider, grouped

@@ -96,9 +96,15 @@ The review's last two corrections plus a status-bar polish. Verified safe for th
 - Proactive, shared compaction before each model request in the REPL, headless, and one-shot, keeping the most recent turn verbatim and bounding the summarized text.
 - The status bar repaints live during a long turn and shows a per-turn `⚒ N` tool-call counter (interactive only).
 
+## 0.14.0: on the clock (released 2026-09-19)
+
+- xAI (Grok) and Groq as OpenAI Chat Completions `ProviderSpec` rows (`XAI_API_KEY`, `GROQ_API_KEY`).
+- Date/time badges above each request and after each reply (with elapsed time); interactive only.
+- `test` and `review` CLI presets; the "no provider ready" setup help now lists every hosted provider from the registry.
+
 ## Later, as configuration rows
 
-- xAI (Grok), Groq, OpenRouter, LM Studio, vLLM: each is a `ProviderSpec` once its Responses or Chat Completions support is checked.
+- OpenRouter, LM Studio, vLLM: each is a `ProviderSpec` once its Responses or Chat Completions support is checked (xAI and Groq shipped in 0.14.0).
 - Cursor has no public model API; nothing to add.
 
 ## Backlog

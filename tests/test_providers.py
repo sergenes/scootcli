@@ -218,3 +218,21 @@ def test_pool_dispatches_by_prefix_and_default(monkeypatch, tmp_path):
         assert False
     except ConfigError:
         pass
+
+
+def test_xai_and_groq_are_registered_openai_chat_rows(monkeypatch, tmp_path):
+    _isolate(monkeypatch, tmp_path)
+    for name, key, base in (("xai", "XAI_API_KEY", "https://api.x.ai/v1"),
+                            ("groq", "GROQ_API_KEY", "https://api.groq.com/openai/v1")):
+        spec = registry.get(name)
+        assert spec is not None and spec.wire == "openai_chat"
+        assert spec.key_env == (key,) and spec.key_required
+        assert registry.base_url_for(spec) == base
+        assert spec.preferred_models and spec.has("tools") and spec.has("vision")
+    # A key selects the provider and its preferred model, like the built-ins.
+    monkeypatch.setenv("XAI_API_KEY", "xai-test-000000000000")
+    assert registry.default_provider_name(Config()) == "xai"
+    assert registry.fallback_model(Config()) == "xai/grok-code-fast-1"
+    # A per-provider base-url override still works.
+    monkeypatch.setenv("SCOOT_GROQ_BASE_URL", "https://proxy.example/v1")
+    assert registry.base_url_for(registry.get("groq")) == "https://proxy.example/v1"

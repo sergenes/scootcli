@@ -4,6 +4,12 @@ All notable changes to `scoot`. Format loosely follows [Keep a Changelog](https:
 Versions before 0.1.0 were internal builds of the tool's predecessor, renumbered `0.0.N` here and trimmed to what still describes the public tool.
 What comes next lives in [`ROADMAP.md`](./ROADMAP.md); the behaviour spec in [`SPEC.md`](SPEC.md); design notes in [`DESIGN.md`](./DESIGN.md).
 
+## [0.14.0] — on the clock (2026-09-19)
+- **Two more providers: xAI (Grok) and Groq.** Both are OpenAI Chat Completions-compatible registry rows, so they work through the existing wire, auth, and base-URL machinery: `scoot auth set xai` / `scoot auth set groq`, then `--model xai/grok-code-fast-1` or `--model groq/...`. Keys are `XAI_API_KEY` and `GROQ_API_KEY`; each provider's base URL is overridable with `SCOOT_XAI_BASE_URL` / `SCOOT_GROQ_BASE_URL`. The default `preferred_models` are a best-effort ordering; the live `scoot models` list is authoritative.
+- **Date/time badges on each turn.** A dim date/time line sits above your prompt, and a dim badge follows the reply with the finish time and how long the turn took, like `Wed Sep 19 · 22:07 (30s)`. Interactive only, shown on a TTY unless `--no-labels`; headless and one-shot output are unchanged.
+- **`test` and `review` presets.** `scoot test [path]` runs the tests and fixes failures; `scoot review [path] -m "..."` reviews read-only. They join `explain` and `edit`.
+- **The setup help lists every hosted provider.** The "no provider is ready" guidance is now built from the registry, so openai, anthropic, xai, and groq all appear (and a future provider shows up automatically) instead of a hardcoded openai/anthropic pair.
+
 ## [0.13.0] — keeping up (2026-09-11)
 - **The status bar keeps up during a long turn.** It was redrawn only at the prompt, so context, tokens, and message count looked frozen through a multi-step turn. It now repaints after each streamed model call and each tool run, and shows a per-turn `⚒ N` tool-call counter (reset every turn, so it never desyncs across resume). Interactive only; headless and the machine interfaces are unchanged.
 - **Long turns compact before they overflow.** Compaction was reactive and REPL-only; a single large turn could exceed the model's window. A context check now runs before each model request in the shared loop (REPL, headless, and one-shot), keeping the most recent turn verbatim, summarizing what came before, and bounding the text sent for summarization. The summarization call is counted in usage and cost.
