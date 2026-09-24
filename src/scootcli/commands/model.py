@@ -10,10 +10,25 @@ explicit ``--model`` flag or ``SCOOT_MODEL`` still overrides it for that run.
 from __future__ import annotations
 
 from .. import preferences
+from ..providers import registry
 from ..providers.base import qualify, split_model_id
 from ..rendering import color
 from . import register
 from .base import SlashCommand
+
+_PER_PROVIDER = 8  # models shown per provider in the summary; the rest are behind `/model <provider>`
+
+
+def _print_provider(head: str, models: list, active: str, cap: "int | None") -> None:
+    """Print one provider's models, active first, capped unless ``cap`` is None."""
+    ordered = ([m for m in models if m == active] + [m for m in models if m != active])
+    shown = ordered if cap is None else ordered[:cap]
+    print(color(f"  {head}", "bold"))
+    for mid in shown:
+        mark = color(" ← active", "green") if mid == active else ""
+        print("    " + color(mid, "cyan") + mark)
+    if cap is not None and len(ordered) > cap:
+        print(color(f"    … +{len(ordered) - cap} more · /model {head} to list them", "gray"))
 
 _USAGE = "/model <provider/model> · /model default · /model auto (pick per task) · add 'everywhere' for all folders · /model forget"
 
@@ -55,17 +70,29 @@ def _run(session, args: str):
     arg = " ".join(words)
     available = session.available_models()
 
+    def _grouped():
+        groups = {}
+        for mid in available:
+            head, _ = split_model_id(mid)
+            groups.setdefault(head or "?", []).append(mid)
+        return groups
+
+    # `/model <provider>` (a bare known provider name) lists just that provider, uncapped, so a long
+    # list stays scoped to one screen-friendly provider instead of flooding the terminal.
+    if arg and not everywhere and "/" not in arg and registry.get(arg) is not None:
+        models = _grouped().get(arg, [])
+        if not models:
+            print(color(f"no models listed for '{arg}' (is its key set? try /auth).", "yellow"))
+        else:
+            print(color(f"{arg}  ({len(models)} models)", "bold"))
+            _print_provider(arg, models, session.active_model, cap=None)
+        return
+
     if not arg:
         print(color(f"models  (preference: {session.model} → active: {session.active_model})", "bold"))
         print(color(f"  {_saved_line(session)}", "gray"))
-        current = ""
-        for mid in available:
-            head, _ = split_model_id(mid)
-            if head != current:
-                current = head
-                print(color(f"  {head}", "bold"))
-            mark = color(" ← active", "green") if mid == session.active_model else ""
-            print("    " + color(mid, "cyan") + mark)
+        for head, models in _grouped().items():
+            _print_provider(head, models, session.active_model, cap=_PER_PROVIDER)
         errors = getattr(getattr(session, "provider", None), "list_errors", None) or {}
         for name, err in sorted(errors.items()):
             print(color(f"  {name}: unavailable ({err})", "yellow"))

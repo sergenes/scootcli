@@ -4,6 +4,9 @@ All notable changes to `scoot`. Format loosely follows [Keep a Changelog](https:
 Versions before 0.1.0 were internal builds of the tool's predecessor, renumbered `0.0.N` here and trimmed to what still describes the public tool.
 What comes next lives in [`ROADMAP.md`](./ROADMAP.md); the behaviour spec in [`SPEC.md`](SPEC.md); design notes in [`DESIGN.md`](./DESIGN.md).
 
+## [0.14.1] — the model list fits (2026-09-23)
+- **The model list no longer floods the screen.** With several providers, `/model` and `scoot models` dumped every model at once, so in the dock or a tmux pane you could only see the bottom of an unscrollable list. Each provider is now capped (the active model shown first, then `… +N more`), `/model <provider>` lists one provider in full, and `scoot models --provider <name>` does the same on the command line.
+
 ## [0.14.0] — on the clock (2026-09-19)
 - **Two more providers: xAI (Grok) and Groq.** Both are OpenAI Chat Completions-compatible registry rows, so they work through the existing wire, auth, and base-URL machinery: `scoot auth set xai` / `scoot auth set groq`, then `--model xai/grok-code-fast-1` or `--model groq/...`. Keys are `XAI_API_KEY` and `GROQ_API_KEY`; each provider's base URL is overridable with `SCOOT_XAI_BASE_URL` / `SCOOT_GROQ_BASE_URL`. The default `preferred_models` are a best-effort ordering; the live `scoot models` list is authoritative.
 - **Date/time badges on each turn.** A dim date/time line sits above your prompt, and a dim badge follows the reply with the finish time and how long the turn took, like `Wed Sep 19 · 22:07 (30s)`. Interactive only, shown on a TTY unless `--no-labels`; headless and one-shot output are unchanged.

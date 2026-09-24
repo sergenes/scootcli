@@ -236,3 +236,23 @@ def test_xai_and_groq_are_registered_openai_chat_rows(monkeypatch, tmp_path):
     # A per-provider base-url override still works.
     monkeypatch.setenv("SCOOT_GROQ_BASE_URL", "https://proxy.example/v1")
     assert registry.base_url_for(registry.get("groq")) == "https://proxy.example/v1"
+
+
+def test_cli_models_caps_per_provider_unless_filtered(capsys):
+    from scootcli.cli import _cmd_models
+    from scootcli.providers import ModelInfo
+
+    class _Pool:
+        default_name = "openai"
+        list_errors: dict = {}
+
+        def list_models(self, provider=None):
+            ms = [ModelInfo(id=f"openai/m{i:02d}", provider="openai", name=f"m{i:02d}") for i in range(12)]
+            return [m for m in ms if provider is None or m.provider == provider]
+
+    _cmd_models(_Pool(), as_json=False)
+    out = capsys.readouterr().out
+    assert "+4 more" in out and "scoot models --provider openai" in out
+    _cmd_models(_Pool(), as_json=False, provider="openai")
+    out = capsys.readouterr().out
+    assert "more ·" not in out                      # a single --provider shows all

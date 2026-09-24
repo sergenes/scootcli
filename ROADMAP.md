@@ -96,6 +96,10 @@ The review's last two corrections plus a status-bar polish. Verified safe for th
 - Proactive, shared compaction before each model request in the REPL, headless, and one-shot, keeping the most recent turn verbatim and bounding the summarized text.
 - The status bar repaints live during a long turn and shows a per-turn `⚒ N` tool-call counter (interactive only).
 
+## 0.14.1: the model list fits (released 2026-09-23)
+
+`/model` and `scoot models` cap the list per provider (active first, `… +N more`); `/model <provider>` and `scoot models --provider X` list one provider in full, so the picker no longer floods an unscrollable tmux pane.
+
 ## 0.14.0: on the clock (released 2026-09-19)
 
 - xAI (Grok) and Groq as OpenAI Chat Completions `ProviderSpec` rows (`XAI_API_KEY`, `GROQ_API_KEY`).
@@ -118,6 +122,5 @@ Larger:
 - Web fetch: a gated, opt-in `fetch_url` tool so the agent can read a page (docs, changelogs, error explanations). Off by default, never auto-approved even in `yolo`, SSRF-guarded, text-only, size-bounded, through the existing transport. Search is deferred. Design note and threat model in [`docs/plans/web-fetch.md`](docs/plans/web-fetch.md).
 - Windows: the input dock and ESC handling use termios and raw mode, so scoot runs on Windows only under WSL today; a native path needs the `msvcrt` equivalents and a status bar that survives the console.
 - Auto-attach specific open files beyond the injected repo map.
-- More presets (`test`, `review`).
 - Interactive editing of tool arguments with a real editor instead of a line prompt.
 - Wordmark banner (figlet) next to the mascot, if it can be made clean.
