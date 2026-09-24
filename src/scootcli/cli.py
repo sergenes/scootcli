@@ -139,11 +139,15 @@ def _cmd_models(pool: ProviderPool, as_json: bool, vision_only: bool = False,
     for m in models:
         by_provider.setdefault(m.provider, []).append(m)
     default = pool.default_name
+    cap = None if provider else 8  # a specific --provider shows all; the full grid caps per provider
     for name in sorted(by_provider):
         tag = "  (default)" if name == default else ""
         print(color(f"{name}{tag}", "bold"))
-        for m in sorted(by_provider[name], key=lambda x: x.name):
+        rows = sorted(by_provider[name], key=lambda x: x.name)
+        for m in (rows if cap is None else rows[:cap]):
             print(f"  {color(m.id, 'cyan')}")
+        if cap is not None and len(rows) > cap:
+            print(color(f"  … +{len(rows) - cap} more · scoot models --provider {name}", "gray"))
     return 0
 
 

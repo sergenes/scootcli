@@ -25,7 +25,7 @@ Order: a configured classifier (a small model asked "simple, coding, or hard?", 
 An invalid rules file is reported by `/route` and the built-in heuristic applies.
 2.5a `/route` shows the rule source, the rules, the classifier, and the last decision with its reason, and warns when the classifier is a local model; `/status` shows tokens, cached tokens, calls, and cost per model plus the session total.
 2.5b Cost uses the list prices in `pricing.py` (per million tokens, with cached input at its own rate), stamped with the date they were last checked; a model without a known price shows `?` and makes the session total `?`; local models cost zero.
-2.6 `scoot models` lists models from every configured provider with qualified ids, grouped by provider, marking the default; providers that fail to answer are reported, not fatal.
+2.6 `scoot models` lists models from every configured provider with qualified ids, grouped by provider, marking the default, capped per provider (`--provider NAME` shows one in full); providers that fail to answer are reported, not fatal. In the REPL, `/model` shows the same capped grouping (active model first) and `/model <provider>` lists one provider in full.
 `--provider NAME` restricts the list; `--json` returns `{"models": [...], "errors": {...}}`.
 2.7 Each provider's base URL can be overridden with `SCOOT_<PROVIDER>_BASE_URL`.
 2.8 Requests to `openai` carry `reasoning.effort` from `SCOOT_EFFORT` (`low` | `medium` | `high` | `xhigh`, default `medium`) for reasoning models, `store: false`, and no `temperature`; requests to `ollama` carry `temperature` when given and no `reasoning`.

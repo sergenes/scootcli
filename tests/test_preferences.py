@@ -264,3 +264,33 @@ def test_status_names_the_models_origin(tmp_path, capsys):
     session = _model_session(root)
     status_cmd._run(session, "")
     assert "(from saved for this folder)" in capsys.readouterr().out
+
+
+def test_model_list_caps_per_provider_and_shows_active(tmp_path, capsys):
+    _fresh_config_dir()
+    from scootcli.commands import model as model_cmd
+
+    session = _model_session(tmp_path)
+    session._available = [f"openai/m{i:02d}" for i in range(12)] + ["ollama/llama3.2"]
+    session.model = "openai/m11"
+    session.active_model = "openai/m11"
+    model_cmd._run(session, "")
+    out = capsys.readouterr().out
+    assert "openai/m11 ← active" in out            # the active model is shown first, even past the cap
+    assert out.index("openai/m11") < out.index("openai/m00")
+    assert "+4 more" in out and "/model openai to list them" in out
+    assert "ollama/llama3.2" in out                # short providers list fully
+
+
+def test_model_provider_filter_lists_one_provider_uncapped(tmp_path, capsys):
+    _fresh_config_dir()
+    from scootcli.commands import model as model_cmd
+
+    session = _model_session(tmp_path)
+    session._available = [f"openai/m{i:02d}" for i in range(12)] + ["ollama/llama3.2"]
+    session.active_model = "openai/m00"
+    model_cmd._run(session, "openai")
+    out = capsys.readouterr().out
+    assert out.count("openai/m") == 12             # every openai model, no cap
+    assert "ollama/llama3.2" not in out            # scoped to the one provider
+    assert "more ·" not in out                     # nothing truncated
