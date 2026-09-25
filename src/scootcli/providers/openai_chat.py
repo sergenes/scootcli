@@ -18,17 +18,23 @@ from .base import (
     finish_stream,
     iter_sse_json,
     normalize_usage,
+    sanitized_tool_calls,
 )
 
 _PRIVATE_KEYS = ("provider_items",)
 
 
 def strip_private(messages: List[dict]) -> List[dict]:
-    """Drop scoot-private keys the API would reject."""
+    """Prepare messages for the wire: drop scoot-private keys the API would reject, and rewrite any
+    tool-call arguments that are not valid JSON objects (a truncated length-turn leaves a malformed
+    string that a validating provider would reject on every later request). Copies, never mutates."""
     out = []
     for m in messages:
-        if any(k in m for k in _PRIVATE_KEYS):
+        calls = m.get("tool_calls")
+        if any(k in m for k in _PRIVATE_KEYS) or calls:
             m = {k: v for k, v in m.items() if k not in _PRIVATE_KEYS}
+            if calls:
+                m["tool_calls"] = sanitized_tool_calls(calls)
         out.append(m)
     return out
 

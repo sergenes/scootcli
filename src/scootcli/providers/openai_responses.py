@@ -31,6 +31,7 @@ from .base import (
     iter_sse_json,
     normalize_usage,
     raise_for_status,
+    valid_tool_arguments,
 )
 
 # Models that accept the ``reasoning`` parameter (others reject it with a 400).
@@ -68,9 +69,9 @@ def _content_parts(content, role: str) -> object:
 
 
 def _arguments(raw) -> str:
-    if isinstance(raw, str):
-        return raw
-    return json.dumps(raw or {})
+    # A valid JSON-object string, so a truncated/malformed tool call replayed to the Responses API
+    # cannot get the session stuck (mirrors the Chat wire and Anthropic's dict fallback).
+    return valid_tool_arguments(raw)
 
 
 def translate_messages(messages: List[dict], qualified_model: str) -> Tuple[str, List[dict]]:
