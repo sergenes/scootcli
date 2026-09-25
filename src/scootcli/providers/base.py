@@ -363,6 +363,41 @@ class BaseProvider:
             time.sleep(0.05)
 
 
+def valid_tool_arguments(raw) -> str:
+    """A tool call's ``arguments`` as a JSON *object* string, safe to replay to a provider that
+    validates them. A missing, empty, or malformed value (a stream truncated mid-JSON on a length turn)
+    becomes ``"{}"``, so one bad tool call cannot poison the session on every later request. The call
+    is never dropped, so it still pairs with its matching ``tool`` result and history stays valid.
+    """
+    if isinstance(raw, dict):
+        try:
+            return json.dumps(raw)
+        except (TypeError, ValueError):
+            return "{}"
+    if not raw or not isinstance(raw, str):
+        return "{}"
+    try:
+        parsed = json.loads(raw)
+    except (json.JSONDecodeError, ValueError):
+        return "{}"
+    return raw if isinstance(parsed, dict) else "{}"
+
+
+def sanitized_tool_calls(calls) -> list:
+    """Copy ``calls`` with each ``function.arguments`` replaced by a valid JSON-object string."""
+    out = []
+    for c in calls or []:
+        if not isinstance(c, dict):
+            out.append(c)
+            continue
+        c = dict(c)
+        fn = dict(c.get("function") or {})
+        fn["arguments"] = valid_tool_arguments(fn.get("arguments"))
+        c["function"] = fn
+        out.append(c)
+    return out
+
+
 def iter_sse_json(lines: Iterator[str], status_holder: dict, leftovers: List[str]) -> Iterator[dict]:
     """Walk raw SSE lines: yield each ``data:`` JSON object, record the status sentinel, collect
     anything that is not SSE (an error body) into ``leftovers``."""

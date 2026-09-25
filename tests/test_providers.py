@@ -256,3 +256,52 @@ def test_cli_models_caps_per_provider_unless_filtered(capsys):
     _cmd_models(_Pool(), as_json=False, provider="openai")
     out = capsys.readouterr().out
     assert "more ·" not in out                      # a single --provider shows all
+
+
+# ── outbound tool-argument sanitizing: a malformed/truncated call cannot stick a session ──
+def test_valid_tool_arguments_normalizes_to_a_json_object():
+    import json as _json
+    from scootcli.providers.base import valid_tool_arguments
+
+    assert valid_tool_arguments('{"path": "a.txt"}') == '{"path": "a.txt"}'   # valid: unchanged
+    assert valid_tool_arguments("") == "{}"                                    # empty
+    assert valid_tool_arguments(None) == "{}"
+    assert valid_tool_arguments('{"path": "a') == "{}"                         # truncated mid-JSON
+    assert valid_tool_arguments("[1, 2]") == "{}"                              # JSON but not an object
+    assert _json.loads(valid_tool_arguments({"x": 1})) == {"x": 1}            # dict -> json string
+
+
+def test_chat_wire_sanitizes_tool_args_and_keeps_pairing():
+    import json as _json
+    from scootcli.providers.openai_chat import strip_private
+
+    def call(cid, args):
+        return {"id": cid, "type": "function", "function": {"name": "write_file", "arguments": args}}
+
+    messages = [
+        {"role": "user", "content": "go"},
+        {"role": "assistant", "content": "", "tool_calls": [
+            call("c1", '{"ok": true}'), call("c2", ""), call("c3", '{"path": "x')]},
+        {"role": "tool", "tool_call_id": "c1", "content": "ok"},
+        {"role": "tool", "tool_call_id": "c2", "content": "ok"},
+        {"role": "tool", "tool_call_id": "c3", "content": "ok"},
+    ]
+    out = strip_private(messages)
+    calls = out[1]["tool_calls"]
+    assert len(calls) == 3                                    # no call dropped
+    assert [c["id"] for c in calls] == ["c1", "c2", "c3"]
+    for c in calls:
+        _json.loads(c["function"]["arguments"])              # every one is now valid JSON
+    assert [m.get("tool_call_id") for m in out if m["role"] == "tool"] == ["c1", "c2", "c3"]  # pairing kept
+    assert messages[1]["tool_calls"][1]["function"]["arguments"] == ""  # original history untouched (copied)
+
+
+def test_responses_wire_sanitizes_reconstructed_tool_args():
+    import json as _json
+    from scootcli.providers.openai_responses import translate_messages
+
+    messages = [{"role": "assistant", "content": "", "tool_calls": [
+        {"id": "c1", "type": "function", "function": {"name": "read_file", "arguments": '{"path": "a'}}]}]
+    _instr, items = translate_messages(messages, "openai/gpt-5.3-codex")
+    fc = [it for it in items if it.get("type") == "function_call"]
+    assert len(fc) == 1 and _json.loads(fc[0]["arguments"]) == {}   # truncated args replayed as {}

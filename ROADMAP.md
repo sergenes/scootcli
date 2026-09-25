@@ -96,6 +96,10 @@ The review's last two corrections plus a status-bar polish. Verified safe for th
 - Proactive, shared compaction before each model request in the REPL, headless, and one-shot, keeping the most recent turn verbatim and bounding the summarized text.
 - The status bar repaints live during a long turn and shows a per-turn `⚒ N` tool-call counter (interactive only).
 
+## 0.14.2: no more stuck sessions (released 2026-09-25)
+
+Outbound tool-call arguments are sanitized to valid JSON objects on the OpenAI and OpenAI-compatible wires, so a truncated (length-turn) or malformed tool call replayed to a validating provider can no longer get the session stuck; the call is kept so it still pairs with its result. The Anthropic wire already did this.
+
 ## 0.14.1: the model list fits (released 2026-09-23)
 
 `/model` and `scoot models` cap the list per provider (active first, `… +N more`); `/model <provider>` and `scoot models --provider X` list one provider in full, so the picker no longer floods an unscrollable tmux pane.

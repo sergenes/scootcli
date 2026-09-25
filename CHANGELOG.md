@@ -4,6 +4,9 @@ All notable changes to `scoot`. Format loosely follows [Keep a Changelog](https:
 Versions before 0.1.0 were internal builds of the tool's predecessor, renumbered `0.0.N` here and trimmed to what still describes the public tool.
 What comes next lives in [`ROADMAP.md`](./ROADMAP.md); the behaviour spec in [`SPEC.md`](SPEC.md); design notes in [`DESIGN.md`](./DESIGN.md).
 
+## [0.14.2] — no more stuck sessions (2026-09-25)
+- **A malformed tool call no longer poisons a session.** When a turn was cut off at the model's output limit, its tool-call `arguments` could be left as truncated, invalid JSON. scoot tolerated that locally, but it was replayed verbatim on every later request, so a provider that validates the JSON (an OpenAI-compatible or Copilot-style gateway) rejected the whole request and even a trivial next prompt failed until you reset. Outbound tool-call arguments are now sanitized for the OpenAI and OpenAI-compatible wires: a missing, empty, or unparseable value is sent as `{}`, the call is never dropped so it still pairs with its result, and stored history is left untouched. The Anthropic wire already did this.
+
 ## [0.14.1] — the model list fits (2026-09-23)
 - **The model list no longer floods the screen.** With several providers, `/model` and `scoot models` dumped every model at once, so in the dock or a tmux pane you could only see the bottom of an unscrollable list. Each provider is now capped (the active model shown first, then `… +N more`), `/model <provider>` lists one provider in full, and `scoot models --provider <name>` does the same on the command line.
 
