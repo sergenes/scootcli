@@ -1,7 +1,7 @@
 # Changelog
 
 All notable changes to `scoot`. Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
-Versions before 0.1.0 were internal builds of the tool's predecessor, renumbered `0.0.N` here and trimmed to what still describes the public tool.
+Versions before 0.1.0 were internal builds of mini_agent, the tool's predecessor, renumbered `0.0.N` here and trimmed to what still describes the public tool.
 What comes next lives in [`ROADMAP.md`](./ROADMAP.md); the behaviour spec in [`SPEC.md`](SPEC.md); design notes in [`DESIGN.md`](./DESIGN.md).
 
 ## [0.14.2] — no more stuck sessions (2026-09-25)

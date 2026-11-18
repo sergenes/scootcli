@@ -110,6 +110,79 @@ Outbound tool-call arguments are sanitized to valid JSON objects on the OpenAI a
 - Date/time badges above each request and after each reply (with elapsed time); interactive only.
 - `test` and `review` CLI presets; the "no provider ready" setup help now lists every hosted provider from the registry.
 
+## Planned: 0.15.0 to 0.18.0
+
+Planned 2026-11-18.
+The items after 0.15.0 come from a review of ideas tried in mini_agent, scoot's predecessor, after scoot branched off at 0.0.19.
+They are batched by the code they touch, so each module is opened once, and ordered by what a user can lose: work first, then what the agent can see, then comfort.
+Every item starts with a failing test, and each release is checked against the agents-at-work bridge before it ships.
+
+### 0.15.0: on the web
+
+Ships what is already implemented on `dev`.
+
+- [ ] **`web_search` (SearXNG).**
+  Off unless `SCOOT_SEARCH_URL` is set, never auto-approved even in `yolo`, results marked untrusted, the endpoint not settable from a project `.env`.
+  Design and threat model in [`docs/plans/web-search.md`](docs/plans/web-search.md).
+  Left: the bridge check, README and SPEC, the changelog entry.
+
+### 0.16.0: picks up where it stopped
+
+Reliability, in `agent.py`, `repl.py`, `headless.py`, `cli.py`, and `sessions.py`.
+Both items hook the same turn-exit paths, so they are built and tested together.
+
+- [ ] **Mid-turn session saves.**
+  Today the session is saved once, at the end of a successful turn, so a crash or a killed terminal loses the whole turn, prompt included.
+  Save the prompt before work, each proposed tool batch before execution, each completed tool result, and on every turn exit (errors and Ctrl-C too), in the REPL, headless, and one-shot.
+  Resume already repairs missing tool results; partial failed model streams stay unpersisted.
+- [ ] **Persistent `/error` diagnostics.**
+  The bar shows only a short `last_error` label.
+  Keep the latest error per session outside model history so it survives compaction and restart: an atomic owner-only record through `store.py`, size-capped, with a metadata-only traceback (errno, status, stack locations; never exception text, locals, argv, credentials, or payloads).
+  `/forget` removes it.
+
+### 0.17.0: sees the whole workspace
+
+What the agent and the user can reach, in a new `pathpolicy.py`, `tools/search.py`, `workspace.py`, `project.py`, and `lineeditor.py`.
+The path policy comes first: the search change and Tab completion both use it.
+
+- [ ] **Hidden files visible to the agent, behind one path policy.**
+  `search` (ripgrep `--hidden` and the stdlib fallback) and the workspace map include dot-paths such as `.github/` and `.gitlab-ci.yml`.
+  One shared `pathpolicy.py` excludes VCS internals, caches and venvs, `.scoot/` state, and secret-bearing files (`.env`, `.env.*` except examples, `*.pem`/`*.key`, SSH keys, `.netrc`, credential JSON); ripgrep results are re-filtered against it.
+  It replaces the separate skip lists in `workspace.py`, `project.py`, and `tools/search.py`.
+  A setting restores the old behaviour.
+  This reverses part of R07 (0.10.0) on purpose, so the secret exclusions and the symlink rule get their own regression tests.
+- [ ] **`search` takes a `path`.**
+  An optional base directory, inside or outside the workspace, so the agent can grep a sibling repo; today `read_file` and `list_dir` can leave the workspace through the scope prompt but `search` is fixed to the root.
+  An outside path goes through the same scope prompt; both backends walk under the resolved base, with the symlink and path-policy exclusions kept.
+- [ ] **Read grants in `/status`.**
+  Check that session directory grants from the scope prompt are listed in `/status`, and add them if not.
+- [ ] **Tab completes file paths and lists matches.**
+  An ambiguous `/command` prefix lists every match on the first Tab, then cycles.
+  Any other word completes as a path relative to the workspace root (or absolute or `~`): a unique match is inserted (directories end in `/`), several extend to the common prefix, a second Tab lists them in columns.
+  Dot-entries only when a `.` is typed; noise directories from the path policy never.
+
+### 0.18.0: knows where it is
+
+The status bar and the model settings, in a new `gitinfo.py`, `panel.py`, `lineeditor.py`, `commands/effort.py`, and `config.py`.
+Both bar segments change `build_status_text`, so the bar's width budget is settled once.
+
+- [ ] **Git branch in the status bar and banner.**
+  `⌂ folder (branch)·id` and `root: … (branch)`.
+  Read `.git/HEAD` directly (no subprocess, follow worktree `gitdir:` files), refresh on every bar repaint so shell checkouts and `/worktree` show up, `@<sha7>` when detached, omitted outside Git, long names middle-truncated.
+- [ ] **Idle branch refresh.**
+  The line editor wakes on a `select` timeout (10 s by default, a setting, `0` turns it off) and repaints the bar only when the branch changed, without disturbing the caret or the input.
+  Click-to-refresh through mouse reporting is not planned: it disables the terminal's native text selection.
+- [ ] **`/effort` command with a bar indicator.**
+  `SCOOT_EFFORT` is environment-only today.
+  A live `/effort low|medium|high|xhigh|off` updates the running config and is saved as a preference; an explicit `SCOOT_EFFORT` still wins.
+  A short letter beside the model in the bar, hidden for models that take no effort.
+- [ ] **Larger default budgets.**
+  Decide whether to raise `SCOOT_MAX_STEPS` from 50 to 100 and `SCOOT_COMPACT_AT` from 100,000 to 200,000 context tokens, against the default models' windows.
+
+### After 0.18.0
+
+Web fetch (`fetch_url`) is the natural next release, since `web_search` returns URLs the agent cannot read yet; it stays in the backlog below until 0.15.0 has had real use.
+
 ## Later, as configuration rows
 
 - OpenRouter, LM Studio, vLLM: each is a `ProviderSpec` once its Responses or Chat Completions support is checked (xAI and Groq shipped in 0.14.0).
