@@ -1,6 +1,6 @@
 # Plan: a web_search tool (SearXNG)
 
-Status: implemented and committed on `dev` as 0.15.0, live-tested 2026-11-20, not released yet (the agents-at-work bridge check is open).
+Status: implemented and committed on `dev` as 0.15.0, live-tested 2026-11-20, not released yet; the agents-at-work bridge has been updated and deployed for it.
 This note is the design and threat model for `web_search`, so its effect on anything that drives scoot (in particular the agents-at-work bridge) can be checked before release.
 
 ## Why SearXNG
@@ -150,7 +150,7 @@ Keep `~/searxng` if the instance will be reused.
 
 ### Then release
 
-The agents-at-work bridge check, the PR from `dev` to `main`, the tag, and the PyPI upload.
+The PR from `dev` to `main`, the tag, and the PyPI upload.
 The docs, the changelog entry, and the version bump are done.
 
 ## Live pass, 2026-11-20
@@ -185,4 +185,5 @@ Open findings, both planned for 0.16.0:
   This is in `transport.py` (the watcher can only shut down a socket that already exists), so it applies to every provider request too, not just `web_search`.
 - **No list price for `anthropic/claude-haiku-5-5` or `openai/chat-latest`**, so `cost` is `null` for both.
 
-Not covered: the agents-at-work bridge, and a real terminal (iTerm2, tmux) by eye.
+Not covered in this pass: a real terminal (iTerm2, tmux) by eye.
+The agents-at-work bridge was checked and updated separately by its own agent.

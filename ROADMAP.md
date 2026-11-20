@@ -127,7 +127,8 @@ Implemented and committed on `dev`; not released yet.
   Live-tested 2026-11-20 against a real SearXNG.
 - [x] **Two-key approval prompt.**
   `approve [a]` or `skip [s]` for every tool in the REPL; session-wide approval is the mode, not a key at the prompt.
-- [ ] **Before the release:** the agents-at-work bridge check (the shorter `options` for `web_search`), then the PR to `main`, the tag, and the PyPI upload.
+- [x] **agents-at-work bridge:** updated and deployed for the shorter `options` on `web_search` (2026-11-20).
+- [ ] **To release:** merge the PR to `main`, tag, and upload to PyPI.
 
 ### 0.16.0: picks up where it stopped
 
