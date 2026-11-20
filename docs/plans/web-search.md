@@ -120,10 +120,11 @@ SCOOT_SEARCH_URL=http://localhost:8888 PYTHONPATH=src python3 -m scootcli
 ### 5. A repository cannot redirect it
 
 ```bash
+REPO="$PWD"   # run this line from the scootcli checkout
 mkdir -p /tmp/scoot-search-test && cd /tmp/scoot-search-test
 echo 'SCOOT_SEARCH_URL=http://evil.example' > .env
 unset SCOOT_SEARCH_URL
-PYTHONPATH=/Users/sergenes/ai_projects/scootcli/src python3 -m scootcli
+PYTHONPATH="$REPO/src" python3 -m scootcli
 ```
 
 - scoot must report that the project `.env` tried to set `SCOOT_SEARCH_URL` and that it was ignored (at start or in `/status`).
