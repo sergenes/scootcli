@@ -154,6 +154,7 @@ The most useful settings (see [`.env.example`](./.env.example) for all of them):
 | `SCOOT_APPROVAL` | `always` · `auto-read` · `auto-edits` · `yolo` | `yolo` |
 | `SCOOT_MAX_STEPS` | tool-call steps per turn before asking to continue | `50` |
 | `SCOOT_OLLAMA_BASE_URL` | where Ollama listens | `http://localhost:11434/v1` |
+| `SCOOT_SEARCH_URL` | your SearXNG instance; turns `web_search` on | off |
 | `HTTPS_PROXY` | proxy for hosted providers; localhost is never proxied | |
 
 ## Usage
@@ -208,11 +209,17 @@ Without a TTY, scoot falls back to a plain prompt with no bar and no dock.
 The agent has eight tools: `read_file`, `list_dir`, `search`, `write_file`, `edit_file`, `run_shell`, `open_editor` (hands a file to IntelliJ IDEA's `idea -e` or to VS Code, `SCOOT_EDITOR` picks), and `update_plan` (a progress checklist for multi-step work).
 Paths are resolved against the workspace root, and `~` works.
 
+A ninth tool, `web_search`, is off until you point scoot at a [SearXNG](https://docs.searxng.org/) instance you run: set `SCOOT_SEARCH_URL` (for example `http://localhost:8888`) in your environment or in `~/.config/scoot/.env`.
+SearXNG is self-hosted, so there is no API key and no account; it needs `json` added to `search.formats` in its `settings.yml`.
+A search returns up to 10 results (title, URL, snippet) and does not open the pages.
+Every search asks first and shows the exact query, in every approval mode including `yolo`, because the query leaves your machine.
+
 The workspace is where the agent works, not a wall.
 When a tool needs a file outside it, in `~/.config`, another repo, `/etc`, scoot asks once: allow this path `[a]`, allow that directory for the session `[d]`, allow anywhere for the session `[A]`, skip `[s]`, or quit `[q]`.
 `--scope anywhere`, `SCOOT_SCOPE=anywhere`, or `/scope anywhere` skip the question; `/scope` shows what has been granted.
 
-When a call needs approval you can approve once `[a]`, trust that tool for the session `[t]`, approve everything this session `[A]`, edit the arguments `[e]`, skip `[s]`, or quit `[q]`.
+When a call needs approval you approve it `[a]` or skip it `[s]`; ESC stops the turn.
+Each answer covers that one call; to stop being asked, change the mode.
 `/approve <mode>` sets how much runs without asking: `always` prompts for everything, `auto-read` auto-approves reads, `auto-edits` also auto-approves file edits, `yolo` runs everything.
 Catastrophic shell commands (a denylist: `rm -rf /`, `git push --force`, piping downloads into a shell, and so on) are re-confirmed in every mode.
 
@@ -303,7 +310,8 @@ What scoot protects, and what it does not.
 - **Your API keys.** Read from the environment or from `~/.config/scoot/credentials.json` (directory `0700`, file `0600`), validated before saving, never echoed, and removed from the environment of every hook scoot runs. Key-shaped strings are masked in error messages and in saved sessions (message text, tool arguments, and the text copies inside provider replay data; signed or encrypted replay fields are stored as received). Streamed model output is printed as it arrives and is not filtered.
 - **A cloned repository cannot reconfigure you.** A project `.env` may choose the model, effort, and how the terminal looks. It may not set provider base URLs or proxies (which would send your key elsewhere), the approval mode, the scope, the root, hooks, or scoot's config and state directories; those come from flags, your environment, or `~/.config/scoot/.env`, and a project value for them is ignored and reported at start. A project's `.scoot/hooks.json` runs only after you review it and run `/hooks trust`; the trust is bound to the file's content, so an edited file asks again.
 - **File tools are scoped, shell commands are not sandboxed.** `read_file`, `list_dir`, `search`, `write_file`, and `edit_file` stay inside the workspace plus the paths you grant, and never follow a symlink out of it. `run_shell` runs the command as you, with your normal access to files, network, and other programs; approving a command means exactly that. The denylist (`rm -rf`, `git push`, `sudo`, piping a download into a shell, and so on) is an accident guard that forces a confirmation in every mode, including when a project's hook says `allow` (a hook in your own global config can waive it, so an editor or phone bridge you installed still works); it is not a boundary.
-- **The default is `yolo`.** Tool calls run without asking, except the denylist and paths outside the workspace. Use `--approval always` or `auto-read` on code you do not trust yet, and `/worktree start` to keep autonomous edits out of your checkout.
+- **Web search is opt-in and always asks.** `web_search` exists only when you set `SCOOT_SEARCH_URL` yourself; a project `.env` cannot set it. Every query is shown and confirmed in every mode, and results are passed to the model as untrusted text.
+- **The default is `yolo`.** Tool calls run without asking, except the denylist, web searches, and paths outside the workspace. Use `--approval always` or `auto-read` on code you do not trust yet, and `/worktree start` to keep autonomous edits out of your checkout.
 - **Saved sessions** are owner-only, keyed by workspace, and pruned to the last 20; `/forget all` removes them. Session ids are file names, never paths.
 - No third-party dependencies means no third-party code to audit.
 

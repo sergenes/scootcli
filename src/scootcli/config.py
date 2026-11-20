@@ -120,6 +120,7 @@ def allowed_env_key(key: str) -> bool:
 # relocate scoot's own files. Anything a cloned repository must not be able to decide for you.
 _PROJECT_BLOCKED_KEYS = frozenset({
     "SCOOT_APPROVAL", "SCOOT_SCOPE", "SCOOT_ROOT", "SCOOT_HOOKS", "SCOOT_CONFIG_DIR", "SCOOT_STATE_DIR",
+    "SCOOT_SEARCH_URL",  # a repo must not redirect web-search queries to a host of its choosing
     *_PROXY_KEYS,
 })
 

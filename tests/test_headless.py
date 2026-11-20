@@ -274,3 +274,29 @@ def test_approval_answer_without_id_is_ignored():
     assert approval.decision == Decision.SKIP
     errors = [e for e in out if e["type"] == "error"]
     assert len(errors) == 3 and all("must carry id" in e["message"] for e in errors)
+
+
+# ── 0.15.0: an always-confirm tool's request offers only single-call options ──────
+def test_always_confirm_request_offers_single_call_options_and_downgrades(monkeypatch):
+    import queue
+
+    from scootcli.approvals import Decision
+    from scootcli.headless import HeadlessUI
+    from scootcli.tools.base import ToolContext
+    from scootcli.tools.web_search import WebSearch
+
+    monkeypatch.setenv("SCOOT_SEARCH_URL", "http://localhost:8888")
+    out = []
+
+    class _W:
+        def emit(self, type, **fields):
+            out.append({"type": type, **fields})
+            if type == "approval_request":  # a client that answers with a session-wide decision anyway
+                ui.answers.put({"type": "approve", "id": fields["id"], "decision": "allow_session"})
+
+    ui = HeadlessUI(_W(), queue.Queue(), timeout=1.0)
+    approval = ui.approve(WebSearch(), {"query": "x"}, ToolContext(root="."))
+    request = next(e for e in out if e["type"] == "approval_request")
+    assert request["options"] == ["allow", "deny", "abort"]
+    assert approval.decision == Decision.APPROVE            # one call, never session-wide
+    assert any(e["type"] == "notice" and "this call only" in e["message"] for e in out)

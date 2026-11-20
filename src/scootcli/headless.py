@@ -26,6 +26,7 @@ PROTOCOL = 1
 _DECISIONS = {"allow": Decision.APPROVE, "allow_tool": Decision.APPROVE_TOOL,
               "allow_session": Decision.APPROVE_SESSION, "deny": Decision.SKIP, "abort": Decision.ABORT}
 _OPTIONS = ["allow", "allow_tool", "allow_session", "deny", "abort"]
+_SINGLE_CALL_OPTIONS = ["allow", "deny", "abort"]  # for a tool that always confirms (web access)
 
 
 def approval_timeout() -> float:
@@ -116,8 +117,10 @@ class HeadlessUI:
             preview = tool.preview(args, ctx) or ""
         except Exception:
             pass
+        single_call = bool(getattr(tool, "always_confirm", False))
+        options = _SINGLE_CALL_OPTIONS if single_call else _OPTIONS
         self.writer.emit("approval_request", id=req, name=tool.name, args=args, kind=tool_kind(tool),
-                         preview=str(preview)[:4000], options=_OPTIONS, timeout_s=self.timeout)
+                         preview=str(preview)[:4000], options=options, timeout_s=self.timeout)
         deadline = time.time() + self.timeout
         while True:
             remaining = deadline - time.time()
@@ -138,9 +141,15 @@ class HeadlessUI:
             if decision is None:
                 self.writer.emit("error", message=f"unknown decision {msg.get('decision')!r}; expected one of {_OPTIONS}", kind="protocol")
                 continue
+            answered = str(msg.get("decision")).lower()
+            if single_call and decision in (Decision.APPROVE_TOOL, Decision.APPROVE_SESSION):
+                # Not offered for this tool. Approve this call rather than leave the client waiting,
+                # and say so: nothing is trusted and the approval mode is unchanged.
+                self.writer.emit("notice", message=f"{tool.name} always asks; {answered!r} approved this call only")
+                decision, answered = Decision.APPROVE, "allow"
             new_args = msg.get("args") if isinstance(msg.get("args"), dict) else args
             self.writer.emit("tool_call", id=req, name=tool.name, args=new_args, kind=tool_kind(tool),
-                             auto_approved=False, decision=str(msg.get("decision")).lower())
+                             auto_approved=False, decision=answered)
             return Approval(decision, new_args)
 
     def approve_scope(self, tool, path, ctx) -> str:

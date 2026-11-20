@@ -52,7 +52,7 @@ Readiness is checked for the provider of the active model, at start and again af
 4.2 The project `.env` is the nearest `.env` found walking up from the workspace root (`--root` when given, else the current directory); the global file lives in scoot's config directory.
 4.2a scoot resolves its config directory one way everywhere (global `.env`, hooks, saved keys, preferences): `SCOOT_CONFIG_DIR` if set, else `XDG_CONFIG_HOME/scoot` if set, else `~/.config/scoot`; saved keys and preferences also read the legacy `~/.config/scoot` as a fallback so setting `XDG_CONFIG_HOME` does not orphan them.
 4.3 Only keys named `SCOOT_*`, the providers' key variables, and `HTTPS_PROXY` / `NO_PROXY` are imported from a `.env` file; other keys are ignored.
-4.3a The project `.env` gets a narrower allowlist than the global one: it may not set `SCOOT_<PROVIDER>_BASE_URL`, `HTTPS_PROXY` / `NO_PROXY`, `SCOOT_APPROVAL`, `SCOOT_SCOPE`, `SCOOT_ROOT`, `SCOOT_HOOKS`, `SCOOT_CONFIG_DIR`, or `SCOOT_STATE_DIR`.
+4.3a The project `.env` gets a narrower allowlist than the global one: it may not set `SCOOT_<PROVIDER>_BASE_URL`, `HTTPS_PROXY` / `NO_PROXY`, `SCOOT_APPROVAL`, `SCOOT_SCOPE`, `SCOOT_ROOT`, `SCOOT_SEARCH_URL`, `SCOOT_HOOKS`, `SCOOT_CONFIG_DIR`, or `SCOOT_STATE_DIR`.
 A project value for one of them is ignored and named in a notice at start (`Config.ignored_project_keys`), so a cloned repository cannot redirect an authenticated request, run code, widen what the tools may touch, or move scoot's files.
 4.4 `.env` lines may carry an `export` prefix and single or double quotes; a variable already set in the environment is never overridden.
 4.5 `/status` shows which `.env` files were read.
@@ -79,7 +79,7 @@ Tool calls in such a reply are not executed; the model is asked once to retry, t
 
 ## 6. Tools
 
-6.1 Built-in tools: `read_file`, `list_dir`, `search`, `write_file`, `edit_file`, `run_shell`, `open_editor`, `update_plan`.
+6.1 Built-in tools: `read_file`, `list_dir`, `search`, `write_file`, `edit_file`, `run_shell`, `open_editor`, `update_plan`, and the opt-in `web_search` (6.5a).
 6.2 Paths are resolved against the workspace root with `~` expanded; the workspace is always allowed.
 A path outside it is not rejected: before the tool runs, the user is asked, with the choices allow this path (for this call only), allow its directory for the session, allow anywhere for the session, skip, or abort; the directory and anywhere grants live on the session while allow-this-path lasts one call and is asked again next time (`/scope` shows and changes the session grants, `/status` reports them).
 `SCOOT_SCOPE=anywhere`, `--scope anywhere`, `/scope anywhere`, and `--yes` skip the question; `/scope workspace` revokes.
@@ -93,16 +93,23 @@ Both write through a temporary sibling file and an atomic rename that preserves 
 6.4 `run_shell` executes with a timeout and captures bounded output; its child runs in its own process group, which ESC and the timeout terminate as a whole with bounded waits, with stdin closed and pagers and interactive prompts disabled (`GIT_PAGER=cat`, `GIT_TERMINAL_PROMPT=0`, and similar), so a command that would wait for input fails fast instead of hanging; commands matching the denylist (recursive deletes of root paths, force pushes, piping downloads to a shell, disk formatting, and similar) require confirmation in every approval mode.
 6.4a `open_editor` opens a workspace file in an external editor, `idea -e` (IntelliJ LightEdit) by default or VS Code, as a detached process; the editor comes from the call, else `SCOOT_EDITOR`; it is approval-gated like `run_shell` and fails with an install hint when the launcher is missing.
 6.5 `update_plan` records a step checklist that the UI renders and the status bar counts; it never prompts.
+6.5a `web_search` queries the user's SearXNG instance (`SCOOT_SEARCH_URL` + `/search?q=...&format=json&safesearch=1`) through the stdlib transport and returns at most 10 results (default 5) as title, URL, and a snippet capped at 300 characters, prefixed as untrusted content; it does not fetch result pages.
+It is registered only when `SCOOT_SEARCH_URL` is set, so by default it is absent from the tool schemas and the system prompt.
+It always asks for approval (7.3a).
+A 403 from the instance is reported with the instruction to enable its JSON format; other failures are reported as `search failed: ...` and the turn continues.
 6.6 A tool is a drop-in module in `tools/` that calls `register`; the registry feeds both the API tool schemas and the tool list in the system prompt.
 
 ## 7. Approvals
 
 7.1 Modes: `always` prompts for every call; `auto-read` auto-approves read-only tools; `auto-edits` also auto-approves file writes and edits; `yolo` auto-approves everything.
 The default is `yolo`.
-7.2 At a prompt the choices are approve once, trust this tool for the session, approve everything this session (switches to `yolo`), edit the arguments, skip this call, or abort the turn.
-The keys are case-insensitive except `A`, which is the session-wide choice (`a` approves once).
+7.2 At a prompt the choices are approve this call (`a`) or skip it (`s`); ESC aborts the turn, as does a closed or blank piped input, and any other key asks again.
+An approval covers one call; session-wide approval is the mode (`/approve`, `/yolo`), not a key at the prompt.
+Headless clients keep the wider decisions (trust this tool, approve everything this session) through `approval_request.options` (14.2).
 7.3 Denylisted shell commands are confirmed regardless of mode or trust, and regardless of a project hook's `allow` (a hook in the user's global config may waive it; see 13.4); the patterns cover the ordinary spellings (`rm -r -f`, `--recursive --force`, `git -C repo push`, `git --git-dir=x push`).
 The denylist is an accident guard, not a sandbox: an approved command runs with the user's normal access to files, network, and programs.
+7.3a A tool marked `always_confirm` (`web_search`) is confirmed on every call regardless of mode, trust, or `--yes`: its request carries data off the machine.
+No answer approves it for more than one call; headless offers it only `allow`, `deny`, `abort` (14.2); one-shot `--json` declines it, and a one-shot run whose input is closed ends the turn as aborted.
 7.4 `--yes` / `-y` runs a one-shot turn with everything auto-approved.
 7.4a The scope question (6.2) is asked in every approval mode, including `yolo`, unless the scope is `anywhere`; hooks receive a `Notification` of kind `scope` when it is asked.
 7.5 `/worktree start` creates a throwaway git worktree on a `scoot/<timestamp>` branch and moves the root, the file scope, and the hooks there, so the original checkout is outside the scope; `/worktree merge` brings the result back, `/worktree keep` leaves the branch for review, `/worktree discard` drops it.
@@ -174,7 +181,7 @@ Hooks run sequentially and the first blocking decision wins.
 ## 14. Headless mode
 
 14.1 `scoot --headless` reads one JSON object per line on stdin and writes one JSON object per line on stdout, nothing else on stdout; diagnostics go to stderr; the protocol is versioned (`ready.protocol`, currently 1) and only grows within a major version.
-14.2 Input types: `prompt` (`text`, optional `images`), `approve` (`id`, `decision` among allow, allow_tool, allow_session, deny, abort; optional `args`), `note` (`text`, delivered as a user message at the next model call), `interrupt`, `command` (`name`, `args`), `shutdown`; closing stdin is a shutdown.
+14.2 Input types: `prompt` (`text`, optional `images`), `approve` (`id`, `decision` among allow, allow_tool, allow_session, deny, abort; optional `args`; a tool that always asks, such as `web_search`, offers and honours only allow, deny, abort), `note` (`text`, delivered as a user message at the next model call), `interrupt`, `command` (`name`, `args`), `shutdown`; closing stdin is a shutdown.
 14.3 Output types: `ready`, `turn_start`, `activity`, `text_delta`, `assistant` (`final`), `tool_call`, `approval_request` (`id`, `name`, `args`, `kind`, `preview`, `options`, `timeout_s`), `scope_request` (`id`, `name`, `path`, `options` allow_once, allow_dir, allow_all, deny, abort; answered with `approve`), `tool_result`, `plan`, `turn_end` (`status` among done, incomplete, interrupted, aborted, max_steps, error, blocked; `steps`, `model`, `usage`, `content`, `error`), `notice`, `command_output`, `error` (`kind` among protocol, turn, command, setup), `heartbeat` every 10 seconds, `bye`.
 14.4 Approvals follow the REPL's decision path; an unanswered request is denied after `SCOOT_APPROVAL_TIMEOUT` seconds (default 120).
 An answer must carry the exact `id` of the request it answers; one without an id, or with another request's id, is reported as a protocol error and ignored, so a queued answer can never approve a later request.

@@ -255,3 +255,16 @@ def test_credentials_legacy_fallback_for_xdg_users(monkeypatch, tmp_path):
     # A write lands at the new config dir, migrating forward.
     credentials.save_key("anthropic", "sk-ant-000000000000")
     assert (tmp_path / "xdg" / "scoot" / "credentials.json").exists()
+
+
+def test_project_env_cannot_set_search_url(monkeypatch, tmp_path):
+    for k in ("SCOOT_SEARCH_URL",):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("SCOOT_CONFIG_DIR", str(tmp_path / "cfg"))
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / ".env").write_text("SCOOT_SEARCH_URL=http://evil.invalid/search\n")
+    monkeypatch.chdir(root)
+    cfg = config.Config.load()
+    assert "SCOOT_SEARCH_URL" not in os.environ                        # a repo cannot redirect search
+    assert "SCOOT_SEARCH_URL" in cfg.ignored_project_keys

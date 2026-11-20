@@ -520,3 +520,72 @@ def test_test_and_review_presets_build_prompts():
     assert "Run the tests for tests/" in t and "fix" in t.lower()
     r = presets.build_prompt("review", [], "concurrency")
     assert "Review the current changes" in r and "Do not modify" in r and "concurrency" in r
+
+
+# ── 0.15.0: web_search (SearXNG), gated + always-confirm (review-style safety) ────
+def test_web_search_parses_results_and_marks_them_untrusted(monkeypatch):
+    import json as _json
+    from scootcli import transport as _transport
+    from scootcli.tools.web_search import WebSearch
+
+    monkeypatch.setenv("SCOOT_SEARCH_URL", "http://localhost:8888/")
+    captured = {}
+
+    class _FakeT:
+        def request(self, method, url, auth_token="", cancel_event=None, **kw):
+            captured["url"] = url
+            return 200, _json.dumps({"results": [
+                {"title": "Python", "url": "https://python.org", "content": "The site " + "x" * 500},
+                {"title": "Docs", "url": "https://docs.python.org", "content": "docs"},
+            ]})
+
+    monkeypatch.setattr(_transport, "make_transport", lambda config: _FakeT())
+    with tempfile.TemporaryDirectory() as d:
+        res = WebSearch().run({"query": "python tutorial", "count": 1}, _ctx(Path(d)))
+    assert res.ok and res.summary == "1 result(s)"
+    assert "untrusted" in res.content and "https://python.org" in res.content
+    assert "docs.python.org" not in res.content        # count=1 honored
+    assert "format=json" in captured["url"] and "python+tutorial" in captured["url"]  # query url-encoded
+    assert "x" * 301 not in res.content                # snippet capped
+
+
+def test_web_search_fails_clearly_when_unconfigured(monkeypatch):
+    from scootcli.tools.web_search import WebSearch
+
+    monkeypatch.delenv("SCOOT_SEARCH_URL", raising=False)
+    with tempfile.TemporaryDirectory() as d:
+        res = WebSearch().run({"query": "x"}, _ctx(Path(d)))
+    assert not res.ok and "SCOOT_SEARCH_URL" in res.error
+
+
+def test_web_search_403_says_to_enable_the_json_format(monkeypatch):
+    # SearXNG ships with only the HTML format on and answers format=json with 403, the first thing a
+    # new setup hits (found in the live 0.15.0 pass); the error must say what to change.
+    from scootcli import transport as _transport
+    from scootcli.tools.web_search import WebSearch
+
+    monkeypatch.setenv("SCOOT_SEARCH_URL", "http://localhost:8888")
+
+    class _FakeT:
+        def request(self, method, url, auth_token="", cancel_event=None, **kw):
+            return 403, "<html>Forbidden</html>"
+
+    monkeypatch.setattr(_transport, "make_transport", lambda config: _FakeT())
+    with tempfile.TemporaryDirectory() as d:
+        res = WebSearch().run({"query": "x"}, _ctx(Path(d)))
+    assert not res.ok and "HTTP 403" in res.error
+    assert "json" in res.error and "settings.yml" in res.error
+
+
+def test_web_search_registers_only_when_configured(monkeypatch):
+    import scootcli.tools as _tools
+
+    monkeypatch.setattr(_tools, "_loaded", False)
+    monkeypatch.delenv("SCOOT_SEARCH_URL", raising=False)
+    _tools.load_builtins()
+    assert "web_search" not in _tools.all_tools()      # off by default
+    monkeypatch.setattr(_tools, "_loaded", False)
+    monkeypatch.setenv("SCOOT_SEARCH_URL", "http://localhost:8888")
+    _tools.load_builtins()
+    assert "web_search" in _tools.all_tools()          # appears once a SearXNG URL is set
+    _tools._REGISTRY.pop("web_search", None)           # leave the registry clean for other tests

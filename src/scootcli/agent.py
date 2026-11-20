@@ -526,7 +526,9 @@ class Agent:
                     )
                     ui.tool_result(name, ToolResult(ok=False, summary="skipped"))
                     continue
-                if approval.decision == Decision.APPROVE_TOOL:
+                if getattr(tool, "always_confirm", False):
+                    pass  # one call only: a session-wide answer never trusts the tool or enters yolo
+                elif approval.decision == Decision.APPROVE_TOOL:
                     trusted.add(name)
                     ui.assistant(f"trusting {name} for the rest of this session.")
                 elif approval.decision == Decision.APPROVE_SESSION:

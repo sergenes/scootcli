@@ -23,7 +23,7 @@ Models are addressed as `provider/model`.
   - `images.py` / `vision.py`: image path detection, encoding, and description through the provider layer.
   - `sessions.py` / `context.py` / `project.py` / `worktree.py` / `workspace.py` / `clipboard.py`: persistence, compaction, `/init`, worktrees, repo map, clipboard.
   - `commands/`: slash commands (drop-in registry).
-  - `tools/`: `read_file`, `list_dir`, `search`, `write_file`, `edit_file`, `run_shell`, `update_plan` (drop-in registry, path-sandboxed).
+  - `tools/`: `read_file`, `list_dir`, `search`, `write_file`, `edit_file`, `run_shell`, `update_plan`, and the opt-in `web_search` (SearXNG, only when `SCOOT_SEARCH_URL` is set) (drop-in registry, path-sandboxed).
   - `presets.py`: `explain` and `edit` presets that seed the same agent.
 - `tests/`: network-free pytest suite (`conftest.py` restores the environment around each test).
 - `scripts/build.sh`: builds `dist/scoot.pyz`, the wheel, and the sdist.

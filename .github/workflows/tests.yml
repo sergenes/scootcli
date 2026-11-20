@@ -9,7 +9,9 @@ on:
 jobs:
   tests:
     name: pytest (${{ matrix.os }}, py${{ matrix.python }})
-    runs-on: ${{ matrix.os }}
+    # ubuntu-latest moved to Ubuntu 26.04, which setup-python has no Python 3.9 build for; that one
+    # cell runs on 24.04. The job name keeps `ubuntu-latest` so the required-check names stay valid.
+    runs-on: ${{ (matrix.os == 'ubuntu-latest' && matrix.python == '3.9') && 'ubuntu-24.04' || matrix.os }}
     strategy:
       fail-fast: false
       matrix:

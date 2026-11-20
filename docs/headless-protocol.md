@@ -15,7 +15,7 @@ The status bar, the input dock, and the mascot are off.
 | type | fields | effect |
 |---|---|---|
 | `prompt` | `text`, optional `images` (list of file paths) | starts a turn; ignored while a turn runs until the turn ends (queued) |
-| `approve` | `id` (required, the request's id; an answer without it is a protocol error and is ignored), `decision`: `allow` \| `allow_tool` \| `allow_session` \| `deny` \| `abort`, optional `args` (edited tool arguments) | answers an `approval_request`; `allow_tool` trusts the tool for the session, `allow_session` switches to `yolo`, `abort` ends the turn |
+| `approve` | `id` (required, the request's id; an answer without it is a protocol error and is ignored), `decision`: `allow` \| `allow_tool` \| `allow_session` \| `deny` \| `abort`, optional `args` (edited tool arguments) | answers an `approval_request`; `allow_tool` trusts the tool for the session, `allow_session` switches to `yolo`, `abort` ends the turn; answer with one of the request's `options`: a tool that always asks (`web_search`) offers only `allow`, `deny`, `abort`, and a session-wide answer to it approves that call only, with a `notice` |
 | `note` | `text` | queued and delivered as a user message at the next model call of the running turn (or the next turn) |
 | `interrupt` | | cancels the running turn, like ESC in the REPL; the conversation is kept |
 | `command` | `name`, optional `args` | runs a slash command (`status`, `model`, `compact`, `reset`, `route`, `hooks`, ...); its text output comes back in `command_output`; `exit` shuts down |
@@ -32,7 +32,7 @@ The status bar, the input dock, and the mascot are off.
 | `text_delta` | `text` (a streamed fragment of the answer) |
 | `assistant` | `text`, `final` (`false` for narration between tool calls, `true` for the complete streamed answer) |
 | `tool_call` | `id`, `name`, `args`, `kind` (`read` \| `write` \| `shell` \| `meta`), `auto_approved`, `decision` (when answered) |
-| `approval_request` | `id`, `name`, `args`, `kind`, `preview`, `options`, `timeout_s` |
+| `approval_request` | `id`, `name`, `args`, `kind`, `preview`, `options` (the decisions this request accepts), `timeout_s` |
 | `scope_request` | `id`, `name`, `path`, `options` (`allow_once`, `allow_dir`, `allow_all`, `deny`, `abort`), `timeout_s`; the tool wants a path outside the workspace; answer with `approve` |
 | `tool_result` | `name`, `ok`, `summary`, `error`, `content` (bounded) |
 | `plan` | `steps` (from `update_plan`: `step`, `status`) |
