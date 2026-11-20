@@ -64,6 +64,14 @@ def load_builtins() -> None:
     from . import run_shell  # noqa: F401
     from . import open_editor  # noqa: F401
     from . import update_plan  # noqa: F401
+    from . import web_search
+
+    # Optional, off by default: web_search is present only when a SearXNG URL is configured. Reflect
+    # the current env each time load_builtins runs (env is fixed at startup), so the registry matches.
+    if web_search.enabled():
+        register(web_search.WebSearch())
+    else:
+        _REGISTRY.pop("web_search", None)
 
     _loaded = True
 

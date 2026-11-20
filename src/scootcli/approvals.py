@@ -1,14 +1,15 @@
 """Human-in-the-loop approvals (PLAN §9).
 
 Default policy is ``always``: every tool call is shown and must be approved. The prompt renders the
-tool name + arguments and, for writes/shell, a rich preview (diff or command). Inline single-key
-controls:
+tool name + arguments and, for writes/shell, a rich preview (diff or command), then two single-key
+choices:
 
-    [a] approve once   [t] trust this tool for the session   [A] approve all this session (yolo)
-    [e] edit arguments   [s] skip (tell the model no)   [q] abort the agent
+    [a] approve this call   [s] skip it (tell the model no)
 
-``[t]`` and ``[A]`` fight approval fatigue on read-heavy tasks; the shell denylist still re-confirms
-catastrophic commands even after ``[A]``.
+ESC stops the turn. Approving more than one call is a deliberate command, not a key at a prompt:
+``/yolo`` and ``/approve <mode>`` change the mode for the session. The shell denylist and tools that
+always confirm (web access) still ask in every mode. The wider decisions (``APPROVE_TOOL``,
+``APPROVE_SESSION``) remain for the headless protocol, whose clients choose from ``options``.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from .keys import read_key
-from .rendering import color, eprint
+from .rendering import color
 from .tools.base import Tool, ToolContext
 
 
@@ -83,6 +84,8 @@ def needs_prompt(mode: str, tool: Tool, args: dict, trusted=()) -> "str | None":
             return f"blocked command ({reason})"
     if getattr(tool, "auto_approve", False):
         return None  # side-effect-free meta tools (e.g. update_plan) never prompt
+    if getattr(tool, "always_confirm", False):
+        return "web access needs confirmation"  # never auto-approved, even in yolo
     if mode == "yolo":
         return None
     if tool.name in (trusted or ()):
@@ -109,27 +112,6 @@ def _render(tool: Tool, args: dict, ctx: ToolContext) -> None:
 
         for line in preview.splitlines():
             print("  " + strip_controls(line))
-
-
-def _edit_args(args: dict) -> dict:
-    """Let the user type replacement JSON for the tool arguments."""
-    print(color("  current args: ", "gray") + json.dumps(args, ensure_ascii=False))
-    print(color("  enter new JSON (blank to keep): ", "gray"), end="", flush=True)
-    try:
-        raw = input()
-    except (EOFError, KeyboardInterrupt):
-        return args
-    raw = raw.strip()
-    if not raw:
-        return args
-    try:
-        new = json.loads(raw)
-        if isinstance(new, dict):
-            return new
-        eprint(color("  (ignored: not a JSON object)", "yellow"))
-    except json.JSONDecodeError as exc:
-        eprint(color(f"  (ignored: invalid JSON: {exc})", "yellow"))
-    return args
 
 
 SCOPE_CHOICES = ("once", "dir", "all", "deny", "abort")
@@ -175,41 +157,24 @@ def request_scope(tool: Tool, path, ctx: ToolContext) -> str:
 
 
 def request_approval(tool: Tool, args: dict, ctx: ToolContext) -> Approval:
-    """Show the pending tool call and read the user's decision (with optional arg editing)."""
+    """Show the pending tool call and read the user's decision: approve this call, or skip it.
+
+    A yes/no on exactly what is shown is the whole decision, for every tool. ESC stops the turn, as it
+    does everywhere (and so does a closed or blank piped input); any other key shows the prompt again.
+    """
+    menu = "  " + color("approve", "green") + " [a]  " + color("skip", "yellow") + " [s] › "
     while True:
         _render(tool, args, ctx)
-        print(
-            "  "
-            + color("approve", "green")
-            + " [a]  "
-            + color(f"trust {tool.name}", "green")
-            + " [t]  "
-            + color("all-session", "green")
-            + " [A]  "
-            + color("edit", "cyan")
-            + " [e]  "
-            + color("skip", "yellow")
-            + " [s]  "
-            + color("quit", "red")
-            + " [q] › ",
-            end="",
-            flush=True,
-        )
+        print(menu, end="", flush=True)
         key = _menu_key()
         print(key)  # echo the choice for a clean transcript
 
         if key in ("a", "y", "\r", "\n", ""):
             return Approval(Decision.APPROVE, args)
-        if key == "t":
-            return Approval(Decision.APPROVE_TOOL, args)
-        if key == "A":
-            return Approval(Decision.APPROVE_SESSION, args)
-        if key == "e":
-            args = _edit_args(args)
-            continue
-        if key == "s":
+        if key in ("s", "n"):
             return Approval(Decision.SKIP, args)
-        if key in ("q", "\x1b"):
+        if key in ("\x1b", "q"):
+            # "q" is not advertised, but it is what read_key answers for EOF or a blank line on piped
+            # input: a closed stdin must end the turn, never loop on the prompt and never approve.
             return Approval(Decision.ABORT, args)
         # Unknown key: re-prompt.
-

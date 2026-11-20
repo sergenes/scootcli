@@ -142,6 +142,7 @@ class Tool:
     parameters: dict = {"type": "object", "properties": {}}
     risk: str = "read"  # "read" | "write" | "shell" — drives the approval UI emphasis
     auto_approve: bool = False  # meta tools with no side effects (e.g. update_plan) skip approval
+    always_confirm: bool = False  # web-reaching tools: always prompt, even in yolo
 
     def run(self, args: dict, ctx: ToolContext) -> ToolResult:  # pragma: no cover - abstract
         raise NotImplementedError

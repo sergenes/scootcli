@@ -119,17 +119,20 @@ Every item starts with a failing test, and each release is checked against the a
 
 ### 0.15.0: on the web
 
-Ships what is already implemented on `dev`.
+Implemented and committed on `dev`; not released yet.
 
-- [ ] **`web_search` (SearXNG).**
+- [x] **`web_search` (SearXNG).**
   Off unless `SCOOT_SEARCH_URL` is set, never auto-approved even in `yolo`, results marked untrusted, the endpoint not settable from a project `.env`.
   Design and threat model in [`docs/plans/web-search.md`](docs/plans/web-search.md).
-  Left: the bridge check, README and SPEC, the changelog entry.
+  Live-tested 2026-11-20 against a real SearXNG.
+- [x] **Two-key approval prompt.**
+  `approve [a]` or `skip [s]` for every tool in the REPL; session-wide approval is the mode, not a key at the prompt.
+- [ ] **Before the release:** the agents-at-work bridge check (the shorter `options` for `web_search`), then the PR to `main`, the tag, and the PyPI upload.
 
 ### 0.16.0: picks up where it stopped
 
-Reliability, in `agent.py`, `repl.py`, `headless.py`, `cli.py`, and `sessions.py`.
-Both items hook the same turn-exit paths, so they are built and tested together.
+Reliability, in `agent.py`, `repl.py`, `headless.py`, `cli.py`, `sessions.py`, and `transport.py`.
+The first two items hook the same turn-exit paths, so they are built and tested together.
 
 - [ ] **Mid-turn session saves.**
   Today the session is saved once, at the end of a successful turn, so a crash or a killed terminal loses the whole turn, prompt included.
@@ -139,6 +142,13 @@ Both items hook the same turn-exit paths, so they are built and tested together.
   The bar shows only a short `last_error` label.
   Keep the latest error per session outside model history so it survives compaction and restart: an atomic owner-only record through `store.py`, size-capped, with a metadata-only traceback (errno, status, stack locations; never exception text, locals, argv, credentials, or payloads).
   `/forget` removes it.
+- [ ] **Interrupt cancels a connection that is still being made.**
+  ESC or a headless `interrupt` during the connect phase is honoured only after the 30 s connect timeout, because the watcher in `transport.py` can only shut down a socket that already exists.
+  It applies to every provider request and to `web_search`; found in the 0.15.0 live pass with an unroutable host.
+  Make the connect (direct and through the proxy, TLS handshake included) cancellable within the watcher's poll interval.
+- [ ] **List prices for the models in use.**
+  `cost` is `null` for `anthropic/claude-haiku-5-5` and `openai/chat-latest`, so `/status` and the machine cost fields are blank for them.
+  Review `pricing.py` against each provider's current list, and decide how an alias such as `chat-latest` is priced.
 
 ### 0.17.0: sees the whole workspace
 
@@ -199,5 +209,5 @@ Larger:
 - Web fetch: a gated, opt-in `fetch_url` tool so the agent can read a page (docs, changelogs, error explanations). Off by default, never auto-approved even in `yolo`, SSRF-guarded, text-only, size-bounded, through the existing transport. Search is deferred. Design note and threat model in [`docs/plans/web-fetch.md`](docs/plans/web-fetch.md).
 - Windows: the input dock and ESC handling use termios and raw mode, so scoot runs on Windows only under WSL today; a native path needs the `msvcrt` equivalents and a status bar that survives the console.
 - Auto-attach specific open files beyond the injected repo map.
-- Interactive editing of tool arguments with a real editor instead of a line prompt.
+- Interactive editing of tool arguments with a real editor (the line-prompt version left with the two-choice approval prompt in 0.15.0).
 - Wordmark banner (figlet) next to the mascot, if it can be made clean.

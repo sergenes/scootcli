@@ -91,7 +91,7 @@ Rules that apply to all of them:
 
 - Modes: `always` asks for every call; `auto-read` runs read-only tools; `auto-edits` also runs writes; `yolo` runs everything.
   Pick your default deliberately and document it.
-- The prompt offers: approve once, trust this tool for the session, approve everything this session, edit the arguments, skip this call, abort the turn.
+- The prompt offers two choices, approve this call or skip it, plus a way to abort the turn; a machine client may also be offered trust-this-tool and approve-everything-this-session.
   Every answer is bound to the request it was asked for; a missing, empty, or late answer is a denial.
 - A short denylist of catastrophic shell commands (recursive deletes of root paths, force pushes, piping a download into a shell, disk formatting) is confirmed in every mode.
   Normalise obvious spellings (`rm -r -f`, `git -C x push --force`).

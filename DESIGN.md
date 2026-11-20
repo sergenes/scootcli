@@ -405,19 +405,18 @@ Set via `/approve <mode>`, `/yolo` (shortcut for `yolo`), or the `--approval`/`-
 The mode is shown in `/status` and echoed when auto-approving so actions are never silent.
 
 For a prompted call, the UI shows the tool name, pretty-printed arguments, and (for writes) a **diff**;
-for `run_shell`, the exact command. Inline controls:
+for `run_shell`, the exact command. Inline controls (two since 0.15.0):
 
 ```
-[a] approve once   [t] trust this tool for the session   [A] approve all this session (yolo)
-[e] edit arguments   [s] skip (tell model no)   [q] abort agent
+[a] approve this call   [s] skip (tell model no)
 ```
 
-- **trust `[t]`** adds the tool to a per-session trust-list (`ReplSession.trusted_tools`) so further
-  calls to it are auto-approved — kills approval fatigue on read-heavy exploration (search/read loops).
-- **all-session `[A]`** switches the session to `yolo`. The **denylist still re-confirms** catastrophic
-  shell commands even after `[t]`/`[A]`.
+- **approve** covers the one call shown.
+  Approving more is a deliberate command, not a key at a prompt: `/approve <mode>` or `/yolo` change the mode for the session.
+  The **denylist** and tools that always confirm (web access) still ask in every mode.
 - **skip** returns a `ToolResult(ok=False, error="user declined")` so the model can choose another path.
-- **abort** stops the whole loop.
+- **ESC** stops the whole loop.
+- The headless protocol keeps the wider decisions (`allow_tool`, `allow_session`) for clients that choose from `options`; `ReplSession.trusted_tools` holds that per-session trust-list.
 
 ---
 

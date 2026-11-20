@@ -273,3 +273,115 @@ def test_read_key_keep_case_on_piped_input(monkeypatch):
     assert read_key(keep_case=True) == "A"
     monkeypatch.setattr(sys, "stdin", io.StringIO("A\n"))
     assert read_key() == "a"
+
+
+# ── 0.15.0: a web-reaching tool always prompts, even in yolo ──────────────────────
+def test_always_confirm_tool_is_never_auto_approved():
+    from scootcli.tools.web_search import WebSearch
+
+    ws = WebSearch()
+    assert needs_prompt("yolo", ws, {"query": "x"}) is not None        # not even in yolo
+    assert needs_prompt("auto-read", ws, {"query": "x"}) is not None
+    assert needs_prompt("always", ws, {"query": "x"}, trusted={"web_search"}) is not None  # trust doesn't waive it
+
+
+# ── 0.15.0: the prompt is approve or skip; an always-confirm tool is never approved session-wide ──
+def test_every_tool_prompt_is_approve_or_skip(monkeypatch, capsys):
+    # 0.15.0: the REPL prompt is two choices for every tool. Session-wide approval is a deliberate
+    # command (/yolo, /approve), not a key at a prompt; ESC still stops the turn.
+    from scootcli import approvals
+    from scootcli.tools.base import ToolContext
+
+    tools.load_builtins()
+    from scootcli.tools.web_search import WebSearch
+
+    for tool, args in ((tools.get("read_file"), {"path": "a"}), (tools.get("run_shell"), {"command": "ls"}),
+                       (WebSearch(), {"query": "x"})):
+        name = tool.name
+        keys = iter(["t", "A", "e", "a"])  # the former menu keys are ignored now
+        monkeypatch.setattr(approvals, "_menu_key", lambda: next(keys))
+        approval = approvals.request_approval(tool, args, ToolContext(root="."))
+        assert approval.decision == Decision.APPROVE and approval.args == args
+        shown = capsys.readouterr().out
+        for hidden in ("trust", "all-session", "edit", "quit"):
+            assert hidden not in shown, (name, hidden)
+        assert "approve" in shown and "[a]" in shown and "skip" in shown and "[s]" in shown
+    monkeypatch.setattr(approvals, "_menu_key", lambda: "s")
+    assert approvals.request_approval(tools.get("run_shell"), {"command": "ls"}, ToolContext(root=".")).decision == Decision.SKIP
+    monkeypatch.setattr(approvals, "_menu_key", lambda: "\x1b")
+    assert approvals.request_approval(tools.get("run_shell"), {"command": "ls"}, ToolContext(root=".")).decision == Decision.ABORT
+
+
+def test_prompt_on_closed_or_blank_piped_input_aborts_instead_of_looping(monkeypatch):
+    # read_key answers "q" for EOF or a blank line on piped input. With "q" dropped from the menu the
+    # prompt re-asked forever (a one-shot run with stdin closed hung); it must end the turn, and must
+    # never count as an approval.
+    import io
+    import sys
+
+    from scootcli import approvals
+    from scootcli.tools.base import ToolContext
+
+    tools.load_builtins()
+    for piped in ("", "\n"):
+        monkeypatch.setattr(sys, "stdin", io.StringIO(piped))
+        approval = approvals.request_approval(tools.get("run_shell"), {"command": "ls"}, ToolContext(root="."))
+        assert approval.decision == Decision.ABORT
+
+
+def test_session_wide_answer_for_always_confirm_tool_approves_once_only(monkeypatch):
+    # Defence in depth: whatever a UI returns, a session-wide answer to an always-confirm tool is one
+    # approval. It must not switch the session to yolo or add the tool to the trusted set.
+    import json
+
+    from scootcli import transport as _transport
+    from scootcli.approvals import Approval
+    from scootcli.providers import ChatResult
+
+    monkeypatch.setenv("SCOOT_SEARCH_URL", "http://localhost:8888")
+    monkeypatch.setattr(tools, "_loaded", False)  # builtins load once per process; redo it with the URL set
+    tools.load_builtins()
+
+    class _FakeT:
+        def request(self, method, url, auth_token="", cancel_event=None, **kw):
+            return 200, json.dumps({"results": [{"title": "T", "url": "https://t.example", "content": "c"}]})
+
+    monkeypatch.setattr(_transport, "make_transport", lambda config: _FakeT())
+
+    class EscalatingUI(HeadlessUI):
+        def __init__(self):
+            super().__init__(Decision.APPROVE)
+            self.answers = [Decision.APPROVE_SESSION, Decision.APPROVE_TOOL]
+            self.prompts = 0
+
+        def approve(self, tool, args, ctx):
+            self.prompts += 1
+            return Approval(self.answers.pop(0), args)
+
+    class FakeClient:
+        def __init__(self, script):
+            self.script, self.i = script, 0
+
+        def chat(self, *a, **k):
+            r = self.script[min(self.i, len(self.script) - 1)]
+            self.i += 1
+            return r
+
+    def _search(call_id):
+        return ChatResult(content="", model="m", tool_calls=[{
+            "id": call_id, "type": "function",
+            "function": {"name": "web_search", "arguments": json.dumps({"query": "x"})}}])
+
+    with tempfile.TemporaryDirectory() as d:
+        cfg = Config().override(root=str(Path(d)))
+        agent = Agent(cfg, FakeClient([_search("1"), _search("2"), ChatResult(content="done\nDONE", model="m")]))
+        session = _Session("always")
+        ui = EscalatingUI()
+        try:
+            outcome = agent.run_turn(session, ui)
+        finally:
+            tools._REGISTRY.pop("web_search", None)  # leave the registry clean for other tests
+    assert outcome.status == "done"
+    assert ui.prompts == 2                      # both searches asked
+    assert session.approval_mode == "always"    # the session-wide answer did not become yolo
+    assert "web_search" not in session.trusted_tools

@@ -105,7 +105,7 @@ class ReplSession:
         self._available: List[str] = None
         self.bad_models: set = set()  # models that returned "unavailable" this session
         self.worktree = None  # active git worktree (M5.1b), if any
-        self.trusted_tools: set = set()  # tools the user auto-approved for this session ([t])
+        self.trusted_tools: set = set()  # tools trusted for this session (headless `allow_tool`)
         self.plan: List[dict] = []  # latest update_plan steps ({step, status}); shown in the UI
         self.last_error = ""  # short label of the most recent turn failure (shown in the bar until next turn)
         self.last_output = ""  # plain-text of the last assistant answer (for /c + Ctrl-S copy)

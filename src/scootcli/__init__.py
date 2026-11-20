@@ -1,4 +1,4 @@
 """scoot: a tiny coding agent that goes where you point it."""
 
-__version__ = "0.14.2"
+__version__ = "0.15.0"
 
