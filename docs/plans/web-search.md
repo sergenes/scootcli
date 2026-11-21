@@ -1,6 +1,6 @@
 # Plan: a web_search tool (SearXNG)
 
-Status: implemented and committed on `dev` as 0.15.0, live-tested 2026-11-20, not released yet; the agents-at-work bridge has been updated and deployed for it.
+Status: released in 0.15.0 (2026-11-20), live-tested the same day; the agents-at-work bridge has been updated and deployed for it.
 This note is the design and threat model for `web_search`, so its effect on anything that drives scoot (in particular the agents-at-work bridge) can be checked before release.
 
 ## Why SearXNG
@@ -147,11 +147,6 @@ rm -rf /tmp/scoot-search-test
 ```
 
 Keep `~/searxng` if the instance will be reused.
-
-### Then release
-
-The PR from `dev` to `main`, the tag, and the PyPI upload.
-The docs, the changelog entry, and the version bump are done.
 
 ## Live pass, 2026-11-20
 

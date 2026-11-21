@@ -119,7 +119,7 @@ Every item starts with a failing test, and each release is checked against the a
 
 ### 0.15.0: on the web
 
-Implemented and committed on `dev`; not released yet.
+Released 2026-11-20.
 
 - [x] **`web_search` (SearXNG).**
   Off unless `SCOOT_SEARCH_URL` is set, never auto-approved even in `yolo`, results marked untrusted, the endpoint not settable from a project `.env`.
@@ -128,7 +128,7 @@ Implemented and committed on `dev`; not released yet.
 - [x] **Two-key approval prompt.**
   `approve [a]` or `skip [s]` for every tool in the REPL; session-wide approval is the mode, not a key at the prompt.
 - [x] **agents-at-work bridge:** updated and deployed for the shorter `options` on `web_search` (2026-11-20).
-- [ ] **To release:** merge the PR to `main`, tag, and upload to PyPI.
+- [x] **Released:** merged to `main`, tagged `v0.15.0`, and uploaded to PyPI (2026-11-20).
 
 ### 0.16.0: picks up where it stopped
 
