@@ -134,7 +134,7 @@ Released 2026-11-20.
 
 Reliability, in `agent.py`, `repl.py`, `headless.py`, `cli.py`, `sessions.py`, and `transport.py`.
 The first two items hook the same turn-exit paths, so they are built and tested together.
-Implemented on `dev` and live-tested 2026-11-20; not released yet.
+Released 2026-11-20.
 
 - [x] **Mid-turn session saves.**
   Today the session is saved once, at the end of a successful turn, so a crash or a killed terminal loses the whole turn, prompt included.
@@ -154,7 +154,7 @@ Implemented on `dev` and live-tested 2026-11-20; not released yet.
   Done: an alias is priced as the vendor lists it, newer versions get their own rows, and Claude Haiku 5.5's long-prompt tier is applied call by call.
 - [x] **agents-at-work bridge:** checked against the mid-turn saves, the resume point after a kill, and the cost fields; no change needed (2026-11-20).
 - [x] **PyPI page links:** the published description links to the repository files at the release tag instead of to pypi.org.
-- [ ] **To release:** PR to `main`, tag, and upload to PyPI.
+- [x] **Released:** merged to `main`, tagged `v0.16.0`, and uploaded to PyPI (2026-11-20).
 
 ### 0.17.0: sees the whole workspace
 
