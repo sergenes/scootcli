@@ -1,6 +1,7 @@
-"""Session persistence: auto-save each turn, resume with ``--continue`` / ``--resume`` (PLAN §14).
+"""Session persistence: auto-save through each turn, resume with ``--continue`` / ``--resume`` (PLAN §14).
 
-Stdlib-only and offline-friendly. Each interactive session is auto-saved after every turn to
+Stdlib-only and offline-friendly. Each session is saved while a turn runs (the prompt before any
+work, every proposed tool batch, every tool result) and again when the turn ends, however it ends, to
 ``~/.local/state/scoot/sessions/<id>.json`` (owner-only, ``0600``), keyed by workspace root so
 ``--continue`` can find the most recent conversation for the directory you're in. Token-like strings
 are redacted before writing (defense in depth); only the most recent :data:`SESSION_RETENTION`
@@ -173,8 +174,11 @@ def save(record: SessionRecord) -> Optional[Path]:
             pass
         from .store import write_json_atomic
 
-        path = write_json_atomic(directory / f"{record.id}.json", payload)
-        _prune()
+        target = directory / f"{record.id}.json"
+        is_new = not target.exists()
+        path = write_json_atomic(target, payload)
+        if is_new:  # the count only grows with a new file; a mid-turn save must not re-read them all
+            _prune()
         return path
     except OSError:
         return None  # persistence must never break the REPL
@@ -217,6 +221,9 @@ def latest_for_root(root: str) -> Optional[SessionRecord]:
 def delete(session_id: str) -> bool:
     if not valid_id(session_id):
         return False
+    from . import diagnostics
+
+    diagnostics.delete(session_id)  # the session's /error record goes with it
     try:
         (_sessions_dir() / f"{session_id}.json").unlink()
         return True

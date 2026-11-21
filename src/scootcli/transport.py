@@ -4,6 +4,8 @@
 dependency and no ``curl``. Its contract is tiny: ``request`` returns ``(status, body)`` and
 ``stream_request`` yields body lines (SSE) ending with a ``HTTP_STATUS:<code>`` sentinel. Both honour a
 ``cancel_event`` and abort the instant ESC is pressed (the socket is closed from a watcher thread).
+The connect itself (name lookup and TCP handshake) runs on a helper thread, so an interrupt is
+honoured before a socket exists too, instead of after the connect timeout.
 
 Connections are direct, or tunnelled through ``HTTPS_PROXY`` with ``CONNECT`` (no-auth or Basic);
 localhost and ``NO_PROXY`` hosts always connect directly. Plain ``http://`` URLs (a local Ollama, for
@@ -99,6 +101,58 @@ def proxy_bypassed(host: str, no_proxy: Optional[str] = None) -> bool:
     return False
 
 
+_CANCEL_POLL = 0.05  # seconds between looks at the cancel event (the watcher uses the same beat)
+
+
+def _connect(address, cancel_event=None):
+    """``socket.create_connection`` that an interrupt can abandon.
+
+    A blocking connect cannot be woken from another thread: there is no socket to shut down until it
+    returns, and the name lookup before it is not interruptible at all. So with a ``cancel_event``
+    the connect runs on a daemon thread while this one polls the event. On an interrupt the caller
+    gets :class:`Interrupted` at once and the helper is left to finish on its own; a connection it
+    still manages to open is closed, never handed to anyone.
+    """
+    if cancel_event is None:
+        return socket.create_connection(address, timeout=_CONNECT_TIMEOUT)
+    lock = threading.Lock()
+    done = threading.Event()
+    box: dict = {}
+
+    def _work() -> None:
+        try:
+            sock = socket.create_connection(address, timeout=_CONNECT_TIMEOUT)
+        except BaseException as exc:  # noqa: BLE001 - re-raised on the calling thread
+            box["exc"] = exc
+        else:
+            with lock:
+                if box.get("abandoned"):
+                    try:
+                        sock.close()
+                    except OSError:
+                        pass
+                else:
+                    box["sock"] = sock
+        finally:
+            done.set()
+
+    threading.Thread(target=_work, daemon=True, name="scoot-connect").start()
+    while not done.wait(_CANCEL_POLL):
+        if cancel_event.is_set():
+            with lock:
+                box["abandoned"] = True
+                late = box.pop("sock", None)
+            if late is not None:
+                try:
+                    late.close()
+                except OSError:
+                    pass
+            raise Interrupted("request cancelled by user")
+    if "exc" in box:
+        raise box["exc"]
+    return box["sock"]
+
+
 class NativeTransport:
     """Pure-stdlib HTTP transport with cooperative cancellation."""
 
@@ -113,7 +167,7 @@ class NativeTransport:
         self._start_watch(holder, cancel_event, stop)
         try:
             resp = self._connect_and_request(
-                method, url, auth_token, auth_scheme, body, extra_headers, holder)
+                method, url, auth_token, auth_scheme, body, extra_headers, holder, cancel_event)
             data = resp.read()
             return resp.status, data.decode("utf-8", "replace").strip()
         except Interrupted:
@@ -133,7 +187,7 @@ class NativeTransport:
         self._start_watch(holder, cancel_event, stop)
         try:
             resp = self._connect_and_request(
-                method, url, auth_token, auth_scheme, body, extra_headers, holder)
+                method, url, auth_token, auth_scheme, body, extra_headers, holder, cancel_event)
             yield from self._stream_lines(resp, resp.status, cancel_event)
         except Interrupted:
             raise
@@ -148,9 +202,10 @@ class NativeTransport:
             self._close(holder)
 
     # ── request/response plumbing ────────────────────────────────────────────────
-    def _connect_and_request(self, method, url, auth_token, auth_scheme, body, extra_headers, holder):
+    def _connect_and_request(self, method, url, auth_token, auth_scheme, body, extra_headers, holder,
+                             cancel_event=None):
         host, port, path = _split_url(url)
-        sock = self._open_socket(host, port, _is_tls(url), holder)
+        sock = self._open_socket(host, port, _is_tls(url), holder, cancel_event)
         holder["sock"] = sock
         sock.settimeout(self.config.timeout)
         body_bytes = json.dumps(body).encode("utf-8") if body is not None else None
@@ -213,21 +268,25 @@ class NativeTransport:
         yield f"{_STATUS_MARKER.strip()}{status}"
 
     # ── connection + proxy tunnelling ────────────────────────────────────────────
-    def _open_socket(self, host: str, port: int, tls: bool, holder: dict):
+    def _open_socket(self, host: str, port: int, tls: bool, holder: dict, cancel_event=None):
         proxy = _parse_proxy(self.config.proxy)
         if proxy is None or proxy_bypassed(host):
-            raw = socket.create_connection((host, port), timeout=_CONNECT_TIMEOUT)
+            raw = _connect((host, port), cancel_event)
         else:
-            raw = self._open_tunnel(host, port, proxy, holder)
+            raw = self._open_tunnel(host, port, proxy, holder, cancel_event)
+        # From here the watcher owns cancellation: it shuts this socket down, which also ends a TLS
+        # handshake or a proxy CONNECT exchange in progress.
         holder["sock"] = raw
+        if cancel_event is not None and cancel_event.is_set():
+            raise Interrupted("request cancelled by user")
         if not tls:
             return raw
         return ssl.create_default_context().wrap_socket(raw, server_hostname=host)
 
-    def _open_tunnel(self, host, port, proxy, holder):
+    def _open_tunnel(self, host, port, proxy, holder, cancel_event=None):
         """``CONNECT`` through the proxy (no-auth or Basic) and return the raw socket."""
         phost, pport, basic = proxy
-        raw = socket.create_connection((phost, pport), timeout=_CONNECT_TIMEOUT)
+        raw = _connect((phost, pport), cancel_event)
         holder["sock"] = raw
         authorization = None
         if basic:

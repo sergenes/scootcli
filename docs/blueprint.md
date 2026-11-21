@@ -107,7 +107,8 @@ Rules that apply to all of them:
 
 ## 7. Sessions
 
-- Save after every turn: id, workspace root, timestamps, model, messages, usage.
+- Save through the turn, not only after it: the prompt before work, each reply and proposed tool batch, each tool result, and every exit path. Saved: id, workspace root, timestamps, model, messages, usage.
+- Keep the latest error per session in its own small record, outside the conversation, with stack locations only (no locals, payloads, or exception text from unexpected errors).
   Owner-only file, redacted key-shaped strings, the N most recent kept.
 - An id is a basename: validate it at every entry point (save, load, list, delete) so a user-supplied id cannot reach a sibling file.
 - Skip a malformed record when listing; one bad file must not stop the others from loading.

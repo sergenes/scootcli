@@ -32,6 +32,7 @@ class AgentOutcome:
     error: str = ""
     steps: int = 0
     streamed: bool = False  # True if the final content was already printed live (streaming)
+    detail: Optional[dict] = None  # for "error": metadata about the exception (diagnostics.describe)
 
 
 # finish reasons that mean the reply is not the model's whole answer, and what to tell the user.
@@ -52,6 +53,23 @@ def _strip_done(text: str) -> str:
             break
         lines.pop()
     return "\n".join(lines).rstrip()
+
+
+def _error_outcome(exc: Exception, steps: int) -> "AgentOutcome":
+    from .diagnostics import describe
+
+    return AgentOutcome("error", error=_fmt_error(exc), steps=steps, detail=describe(exc))
+
+
+def _checkpoint(session) -> None:
+    """Save the session as it stands (best-effort). Called at every point where a crash or a killed
+    terminal would otherwise lose work: the prompt, a proposed tool batch, each tool result."""
+    save = getattr(session, "autosave", None)
+    if callable(save):
+        try:
+            save()
+        except Exception:
+            pass
 
 
 def _fmt_error(exc: Exception) -> str:
@@ -109,6 +127,7 @@ class Agent:
         cancel_event = cancel_event or threading.Event()
         if hasattr(session, "start_turn"):
             session.start_turn()  # begin this turn's usage tally (see turn_usage)
+        _checkpoint(session)  # the prompt, before any work is done on it
         cfg = getattr(session, "config", None) or self.config
         session.active_model = self._pick_model(session)
         self._refresh_workspace(session, cfg)
@@ -134,7 +153,7 @@ class Agent:
                     ui.assistant(f"model unavailable, switching to {session.active_model}.")
                     steps -= 1  # don't count the failed attempt
                     continue
-                return AgentOutcome("error", error=_fmt_error(exc), steps=steps)
+                return _error_outcome(exc, steps)
             except ContextLengthError as exc:
                 if not compacted and session.messages:
                     compacted = True
@@ -146,15 +165,16 @@ class Agent:
                         continue
                     except ScootError:
                         pass
-                return AgentOutcome("error", error=_fmt_error(exc), steps=steps)
+                return _error_outcome(exc, steps)
             except ScootError as exc:
-                return AgentOutcome("error", error=_fmt_error(exc), steps=steps)
+                return _error_outcome(exc, steps)
 
             try:
                 session.account(result.usage, model=result.model or session.active_model)
             except TypeError:  # older/fake sessions with a one-argument account()
                 session.account(result.usage)
             session.messages.append(self._assistant_message(result))
+            _checkpoint(session)  # the reply, and with it any tool batch, before anything runs
 
             if result.tool_calls:
                 if (result.content or "").strip() and not streamed:
@@ -390,6 +410,7 @@ class Agent:
         session.messages.append(
             {"role": "tool", "tool_call_id": tool_call_id, "content": content}
         )
+        _checkpoint(session)
 
     @staticmethod
     def _tool_payload(result: ToolResult) -> str:
@@ -434,6 +455,7 @@ class Agent:
             tc_id = tc.get("id", "")
             if tc_id not in answered:
                 session.messages.append({"role": "tool", "tool_call_id": tc_id, "content": note})
+        _checkpoint(session)
 
     # ── tool execution ───────────────────────────────────────────────────────────
     def _run_tools(self, session, tool_calls, ui, cancel_event, cfg=None) -> Optional[str]:

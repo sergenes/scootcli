@@ -108,6 +108,7 @@ class ReplSession:
         self.trusted_tools: set = set()  # tools trusted for this session (headless `allow_tool`)
         self.plan: List[dict] = []  # latest update_plan steps ({step, status}); shown in the UI
         self.last_error = ""  # short label of the most recent turn failure (shown in the bar until next turn)
+        self.error_record = None  # the latest failure in full (see record_error and /error)
         self.last_output = ""  # plain-text of the last assistant answer (for /c + Ctrl-S copy)
         self.mascot_state = "idle"  # drives the mascot's eyes in the status bar: idle | thinking | stopped
         self.usage_by_model: dict = {}  # qualified model -> {"prompt": n, "completion": n, "calls": n}
@@ -222,13 +223,31 @@ class ReplSession:
         except Exception:
             return True
 
-    def autosave(self) -> None:
-        """Persist the session after a turn (best-effort; never raises).
+    def record_error(self, exc=None, *, message: str = "", detail=None) -> None:
+        """Remember the latest failure outside the conversation, so ``/error`` can show it after
+        compaction or a restart. Sets the bar's short label too. Best-effort; never raises."""
+        try:
+            from . import __version__, diagnostics
 
-        A conversation with no assistant reply yet (the first turn failed before the model answered)
-        is not worth resuming, so it is not written.
+            record = diagnostics.build(exc, message=message, detail=detail,
+                                       model=getattr(self, "active_model", ""), version=__version__)
+            self.last_error = record["kind"]
+            self.error_record = record
+            diagnostics.save(self.id, record)
+        except Exception:
+            pass
+
+    def autosave(self) -> None:
+        """Persist the session (best-effort; never raises).
+
+        Called through a turn and at its end, so it writes whatever the conversation holds, a lone
+        prompt included: a prompt whose turn failed or was killed can be resumed and retried. The one
+        exception is a prompt sent while no provider is set up: nothing could have answered it, and
+        it should not be offered for resuming.
         """
-        if not any(m.get("role") == "assistant" for m in self.messages):
+        if not self.messages:
+            return
+        if not self.provider_ready and not any(m.get("role") == "assistant" for m in self.messages):
             return
         try:
             from . import sessions
@@ -261,6 +280,8 @@ class ReplSession:
         self.turn_completion = 0
         self.usage_by_model = {}
         self.plan = []  # drop the progress checklist so the bar's ◇ segment clears too
+        self.last_error = ""
+        self.error_record = None  # the old conversation's record stays on disk under its own id
         # Start a brand-new session id so a fresh conversation gets its own saved file.
         self.id = sessions.new_session_id()
         self.created = time.time()
@@ -285,22 +306,25 @@ class ReplSession:
         self.total_completion += completion
         self.turn_prompt += prompt
         self.turn_completion += completion
-        from .pricing import cached_tokens
+        from .pricing import cached_tokens, surcharge
 
         key = model or getattr(self, "active_model", "") or "?"
         slot = self.usage_by_model.setdefault(key, {"prompt": 0, "completion": 0, "cached": 0, "calls": 0})
         slot["prompt"] += prompt
         slot["completion"] += completion
         slot["cached"] += cached_tokens(usage)
+        extra = surcharge(key, prompt, completion, cached_tokens(usage))
+        if extra:
+            slot["surcharge"] = slot.get("surcharge", 0.0) + extra
         slot["calls"] += 1
 
     def session_cost(self):
         """USD spent this session across models, or ``None`` if any model's price is unknown."""
-        from .pricing import cost
+        from .pricing import usage_cost
 
         total = 0.0
         for name, u in self.usage_by_model.items():
-            c = cost(name, u["prompt"], u["completion"], u.get("cached", 0))
+            c = usage_cost(name, u)
             if c is None:
                 return None
             total += c
@@ -778,7 +802,7 @@ class Repl:
         self.ui._commit_line()  # clear any leftover transient step/tool line
         kind = exc.__class__.__name__
         msg = redact(str(exc)) or kind
-        self.session.last_error = kind if isinstance(exc, ScootError) else f"{kind}"
+        self.session.record_error(exc)  # the bar's label, and the record behind /error
         self._refresh_bar()  # surface the failure in the status bar (cleared when the next turn starts)
         from .hooks import notify
 
@@ -1043,10 +1067,11 @@ class Repl:
                 break
             session.mascot_state = "idle" if outcome.status in ("done", "max_steps") else "stopped"
             self._maybe_autocompact()
-            session.autosave()
         except BaseException:
             session.mascot_state = "stopped"  # eyes: - -  (error / ctrl-c); the loop refreshes the bar
             raise
+        finally:
+            session.autosave()  # every way out of a turn, an error and Ctrl-C included
 
     def _ask_continue(self) -> bool:
         """After hitting the step limit, ask whether to keep going (interactive only)."""
@@ -1122,5 +1147,6 @@ class Repl:
             # The continue-prompt is handled by _run_turn / _ask_continue.
             pass
         elif outcome.status == "error":
+            session.record_error(message=outcome.error, detail=outcome.detail)
             eprint(color(f"⚠ {redact(outcome.error)}", "red"))
 
