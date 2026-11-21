@@ -12,7 +12,7 @@ Models are addressed as `provider/model`.
   - `agent.py`: agentic loop, tool routing, `DONE` handling, model fallback, opaque provider items on assistant messages.
   - `providers/`: the provider layer.
     `base.py` (protocol, `ChatRequest`/`ChatResult`, `ProviderSpec`, retries, error mapping), `openai_responses.py` (Responses wire), `openai_chat.py` (Chat Completions wire, for compatible endpoints), `registry.py` (built-in rows, `make_provider`, `ProviderPool`).
-  - `transport.py`: stdlib HTTP/1.1 client with SSE streaming, ESC cancellation, `HTTPS_PROXY` (localhost never proxied).
+  - `transport.py`: stdlib HTTP/1.1 client with SSE streaming, ESC cancellation (the connect phase included), `HTTPS_PROXY` (localhost never proxied).
   - `auth.py` / `credentials.py`: API-key lookup (env, then saved) and `0600` storage.
   - `config.py` / `models.py`: `.env` loading with the key allowlist, precedence, the `auto` model heuristic.
   - `prompts.py`: system prompt assembly (root, model, tools, workspace map, `AGENTS.md`).
@@ -22,12 +22,14 @@ Models are addressed as `provider/model`.
   - `lineeditor.py` / `panel.py` / `resize.py`: fixed-bottom input dock, the status bar, and SIGWINCH handling (wake-up pipe, cursor reports, re-anchor geometry).
   - `images.py` / `vision.py`: image path detection, encoding, and description through the provider layer.
   - `sessions.py` / `context.py` / `project.py` / `worktree.py` / `workspace.py` / `clipboard.py`: persistence, compaction, `/init`, worktrees, repo map, clipboard.
+  - `diagnostics.py`: the latest error per session, metadata only, behind `/error`.
   - `commands/`: slash commands (drop-in registry).
   - `tools/`: `read_file`, `list_dir`, `search`, `write_file`, `edit_file`, `run_shell`, `update_plan`, and the opt-in `web_search` (SearXNG, only when `SCOOT_SEARCH_URL` is set) (drop-in registry, path-sandboxed).
   - `presets.py`: `explain` and `edit` presets that seed the same agent.
 - `tests/`: network-free pytest suite (`conftest.py` restores the environment around each test).
 - `scripts/build.sh`: builds `dist/scoot.pyz`, the wheel, and the sdist.
 - `pyproject.toml`: packaging; the version lives in `scootcli/__init__.py`.
+- `setup.py`: only the PyPI description, the README with its relative links rewritten to GitHub at the release tag, so push the `vX.Y.Z` tag before uploading to PyPI.
 - `.env.example`: every setting, commented.
 
 ## Build & Test
@@ -48,5 +50,5 @@ Run without installing: `PYTHONPATH=src python3 -m scootcli`.
 ## Notes
 - Keys: `OPENAI_API_KEY` in the environment or `~/.config/scoot/.env`, or `scoot auth set openai`. Ollama needs none.
 - Only `SCOOT_*`, provider key variables, and `HTTPS_PROXY`/`NO_PROXY` are imported from `.env` files.
-- Sessions auto-save to `~/.local/state/scoot/sessions/` (owner-only, redacted); `SCOOT_STATE_DIR` overrides the location.
+- Sessions auto-save to `~/.local/state/scoot/sessions/` (owner-only, redacted) through each turn, not only at its end; `SCOOT_STATE_DIR` overrides the location.
 - Default model is the default provider's preferred one (`gpt-5.3-codex` on OpenAI); `SCOOT_MODEL=auto` opts into the per-turn heuristic.

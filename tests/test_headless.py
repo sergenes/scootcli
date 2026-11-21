@@ -133,7 +133,7 @@ def test_full_turn_with_approval_round_trip(tmp_path):
     types = [e["type"] for e in out.events()]
     assert types.index("tool_call") < types.index("tool_result") < types.index("turn_end")
     assert out.wait_for("tool_result")["ok"] is True and "hello" in out.wait_for("tool_result")["content"]
-    assert session.saved == 1
+    assert session.saved >= 1  # through the turn and at its end
     stdin.send({"type": "shutdown"})
     out.wait_for("bye")
     t.join(2)

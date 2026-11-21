@@ -25,6 +25,8 @@ Order: a configured classifier (a small model asked "simple, coding, or hard?", 
 An invalid rules file is reported by `/route` and the built-in heuristic applies.
 2.5a `/route` shows the rule source, the rules, the classifier, and the last decision with its reason, and warns when the classifier is a local model; `/status` shows tokens, cached tokens, calls, and cost per model plus the session total.
 2.5b Cost uses the list prices in `pricing.py` (per million tokens, with cached input at its own rate), stamped with the date they were last checked; a model without a known price shows `?` and makes the session total `?`; local models cost zero.
+A version with its own price is listed under its own id prefix and the longest match wins; a moving alias (`chat-latest`) is priced as the vendor lists the alias.
+A model priced by prompt length (Claude Haiku 5.5 above 100000 prompt tokens) is priced call by call, each at its own tier.
 2.6 `scoot models` lists models from every configured provider with qualified ids, grouped by provider, marking the default, capped per provider (`--provider NAME` shows one in full); providers that fail to answer are reported, not fatal. In the REPL, `/model` shows the same capped grouping (active model first) and `/model <provider>` lists one provider in full.
 `--provider NAME` restricts the list; `--json` returns `{"models": [...], "errors": {...}}`.
 2.7 Each provider's base URL can be overridden with `SCOOT_<PROVIDER>_BASE_URL`.
@@ -73,6 +75,7 @@ Arguments that are not a JSON object never run a tool; the model is told to call
 5.7 A compact workspace map (git branch and dirty count, bounded file tree) is injected into the system prompt each turn unless `--no-workspace`.
 5.8 An `AGENTS.md` at the workspace root is injected into the system prompt when present; `/init` generates one.
 5.9 Pressing ESC during a turn cancels the in-flight request or tool at once, prints an interruption notice, and keeps the conversation.
+5.9a The interrupt is honoured while a connection is still being made (name lookup, TCP connect, proxy `CONNECT`, TLS handshake), within the same poll interval as an open connection, and does not wait for the 30-second connect timeout; a connection that completes after the interrupt is closed.
 5.10 Pressing Ctrl-N during a turn asks for a one-line note at the next model call (the spinner's hint says `^n note`); the note is delivered to the model as a user message before that call, the same path headless mode's `note` uses.
 5.11 A reply the model could not finish, because it reached its output limit or the stream closed early, ends the turn as `incomplete`: the partial text is shown with a warning, one-shot mode exits 1, headless mode reports `status: incomplete`.
 Tool calls in such a reply are not executed; the model is asked once to retry, then the turn ends as `incomplete`.
@@ -126,18 +129,25 @@ A commit or merge that fails keeps the worktree, the branch, and the session in 
 The user's prompt is echoed as a full-width reverse-video band (one band per line), so it reads as distinct from the answer; reverse video adapts to any terminal theme, the band uses the current width so a resize is reflected on the next prompt, and it degrades to a plain `❯`-guttered line without a TTY, under `NO_COLOR`, or with `--no-labels`.
 8.5 `/verbosity full|compact|quiet` controls whether reasoning narration and tool lines stay in the feed.
 8.6 `/c` or Ctrl-S copies the last answer to the clipboard through `pbcopy`, `wl-copy`, `xclip`, `xsel`, or an OSC-52 escape.
-8.7 Slash commands: `/help`, `/exit`, `/reset`, `/save`, `/status`, `/model`, `/init`, `/compact`, `/approve`, `/yolo`, `/worktree`, `/auth`, `/sessions`, `/resume`, `/forget`, `/panel`, `/verbosity`, `/c`, `/logo`.
+8.7 Slash commands: `/help`, `/exit`, `/reset`, `/save`, `/status`, `/model`, `/init`, `/compact`, `/approve`, `/yolo`, `/worktree`, `/auth`, `/sessions`, `/resume`, `/forget`, `/panel`, `/verbosity`, `/c`, `/logo`, `/error`.
 Each is a drop-in module in `commands/`.
 
 ## 9. Context and sessions
 
 9.1 When the context estimate passes `SCOOT_COMPACT_AT` (default 100000 tokens), the conversation is compacted before the next model request in every mode (REPL, headless, one-shot): the most recent user turn is kept verbatim, everything before it is summarized by the model (the summarized text is bounded), and the summary replaces it; `/compact` compacts on demand.
-9.2 Every turn auto-saves the session to `~/.local/state/scoot/sessions/<id>.json` (mode `0600`), keyed by workspace root, with secrets redacted; the 20 most recent sessions are kept.
+9.2 The session is saved to `~/.local/state/scoot/sessions/<id>.json` (mode `0600`), keyed by workspace root, with secrets redacted; the 20 most recent sessions are kept.
+It is saved at the start of a turn (the prompt, before any work), after each model reply (and so before a proposed tool batch runs), after each tool result, and on every exit from a turn, including an error and Ctrl-C, in the REPL, headless mode, and one-shot runs.
+A reply that failed mid-stream is not saved; a prompt sent while no provider is set up is not saved until something answers.
 Redaction masks key-shaped strings in message text (string or parts), tool-call arguments, and the text and tool-input copies inside provider replay items; signed or encrypted replay fields (`signature`, `encrypted_content`, `thinking`, `summary`, `data`) are stored as received because the provider rejects a changed byte.
 9.2a A session id is a file basename (letters, digits, `-`, `_`); save, load, list, and delete reject anything else, and a malformed record is skipped when listing without preventing the others from loading.
 9.3 `scoot --continue` resumes the latest session for the directory, `scoot --resume <id>` a specific one; `SCOOT_RESUME` is `auto` (reload the latest on launch, the default), `hint` (show it in the banner), or `off`.
 Resuming restores the conversation and, when this run set no model explicitly, the model; it never restores the approval mode, so `--approval always` stays in force over a session that once ran in `yolo`.
 9.4 `/sessions` lists, `/resume [id]` loads, `/forget <id>|all` deletes.
+9.5 The latest error of a session is kept in `~/.local/state/scoot/errors/<id>.json` (mode `0600`, at most 16 KB), outside the conversation, so compaction and a restart do not lose it; a newer error replaces it and deleting the session deletes it.
+The record holds the error class, HTTP status, provider error code, `errno`, the classes of its causes, the model, the scoot version, and the file, line, and function of each stack frame (package-relative for scoot's code, the bare file name otherwise).
+It holds the message and hint only for scoot's own typed errors, redacted and capped; for any other exception no message text is stored.
+It never holds local variables, argv, credentials, or request or response payloads.
+`/error` prints it.
 
 ## 10. Images
 

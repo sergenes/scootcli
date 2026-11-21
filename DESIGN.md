@@ -89,7 +89,8 @@ scootcli/
 │   │   ├── openai_responses.py  # Responses API wire (OpenAI, Ollama)
 │   │   ├── openai_chat.py    # Chat Completions wire (compatible endpoints)
 │   │   └── registry.py       # built-in rows, make_provider, ProviderPool
-│   ├── transport.py          # stdlib HTTP/1.1 + SSE, ESC cancellation, HTTPS_PROXY
+│   ├── transport.py          # stdlib HTTP/1.1 + SSE, ESC cancellation (connect included), HTTPS_PROXY
+│   ├── diagnostics.py        # the latest error per session, metadata only (/error)
 │   ├── auth.py / credentials.py  # API-key lookup (env > saved) and 0600 storage
 │   ├── config.py / models.py # .env allowlist + precedence; the `auto` heuristic
 │   ├── prompts.py            # system prompt assembly
@@ -262,11 +263,13 @@ command itself calls it). Adding a new one = drop a file in `commands/`.
 - The terminal is put in **cbreak/raw mode** via `termios`+`tty`; a small **key-listener thread**
   uses `select` to watch stdin for the ESC byte (`0x1b`) without needing Enter.
 - The **agent runs in a worker thread**. On ESC, the listener sets a shared `cancel_event`.
-- The client holds the model call's `subprocess.Popen`; on cancel it calls `.terminate()` so a
-  long-running request dies **instantly** instead of after it returns. Tool subprocesses
-  (esp. `run_shell`) are terminated the same way.
+- The transport holds the model call's socket; a watcher thread shuts it down on cancel, so a
+  long-running request dies **instantly** instead of after it returns. While the connection is
+  still being made there is no socket to shut down, so the connect runs on a helper thread that
+  the caller abandons on cancel. Tool subprocesses (esp. `run_shell`) are terminated.
 - Between steps the agent checks `cancel_event` and bails out cleanly. Net effect: ESC feels
-  immediate because the only thing that can block (an external process) is killed outright.
+  immediate because everything that can block (a socket, a connect, an external process) can be
+  cut short from another thread.
 - On exit we always restore the terminal mode (`try/finally`), even on crash.
 
 ### How intent is inferred (no verb parsing)
@@ -456,7 +459,7 @@ Packaging is `pyproject.toml` `[project]` metadata with `dynamic = ["version"]` 
 - Only allowlisted keys are imported from `.env` files, so a project's secrets stay out of the process.
 - All filesystem/shell actions are **root-sandboxed**; the shell denylist re-confirms catastrophic
   commands in every approval mode.
-- Saved sessions are owner-only; `/forget all` removes them.
+- Saved sessions are owner-only; `/forget all` removes them, and each session's `/error` record with it.
 - **Zero third-party deps** shrinks the supply-chain attack surface (no external packages to vet).
 
 ---

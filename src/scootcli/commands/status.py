@@ -58,11 +58,11 @@ def _run(session, args: str):
         print(f"  {color(label + ':', 'gray'):<28} {value}")
     by_model = getattr(session, "usage_by_model", None) or {}
     if by_model:
-        from ..pricing import UPDATED, cost, fmt
+        from ..pricing import UPDATED, fmt, usage_cost
 
         print(f"  {color('tokens and cost by model:', 'gray')}")
         for name, u in sorted(by_model.items(), key=lambda kv: -(kv[1]['prompt'] + kv[1]['completion'])):
-            c = cost(name, u["prompt"], u["completion"], u.get("cached", 0))
+            c = usage_cost(name, u)
             cached = f" cached={u['cached']}" if u.get("cached") else ""
             print(f"    {color(name, 'cyan'):<40} prompt={u['prompt']}{cached} completion={u['completion']} calls={u['calls']}  {fmt(c)}")
         total = session.session_cost() if hasattr(session, "session_cost") else None

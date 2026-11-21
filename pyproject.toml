@@ -4,9 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "scootcli"
-dynamic = ["version"]
+# The README is supplied by setup.py, which rewrites its relative links for PyPI (see there).
+dynamic = ["version", "readme"]
 description = "A tiny coding agent that goes where you point it"
-readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Sergey Nes" }]

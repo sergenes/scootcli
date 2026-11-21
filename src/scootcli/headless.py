@@ -316,10 +316,10 @@ class Headless:
                     return
                 self.session.messages.append({"role": "user", "content": text})
                 outcome = self.agent.run_turn(self.session, self.ui, self.cancel)
-            self.session.autosave()
             if outcome.status == "max_steps":
                 self.writer.emit("notice", message=f"reached the step limit ({self.session.config.max_steps}); send another prompt to continue")
             if outcome.status == "error":
+                self._record_error(message=outcome.error, detail=outcome.detail)
                 self.writer.emit("error", message=outcome.error, kind="turn")
             if outcome.status == "incomplete":
                 self.writer.emit("notice", message=f"reply cut off: {outcome.error}; the content is partial")
@@ -328,13 +328,23 @@ class Headless:
                              cost=self._turn_cost(before), cost_session=self._session_cost(),
                              content=outcome.content, error=outcome.error)
         except ScootError as exc:
+            self._record_error(exc)
             self.writer.emit("error", message=str(exc), hint=getattr(exc, "hint", ""), kind="turn")
             self.writer.emit("turn_end", turn=self._turn, status="error", steps=0, model=self.session.active_model,
                              usage={}, content="", error=str(exc))
+        except BaseException as exc:
+            self._record_error(exc)
+            raise
         finally:
+            self.session.autosave()  # every way out of a turn
             self.busy = False
             self.cancel = None
             self.ui.cancel_event = None
+
+    def _record_error(self, exc=None, **kw) -> None:
+        record = getattr(self.session, "record_error", None)
+        if callable(record):
+            record(exc, **kw)
 
     def _session_cost(self):
         fn = getattr(self.session, "session_cost", None)

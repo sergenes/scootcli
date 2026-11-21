@@ -203,8 +203,15 @@ def _run_once(config: Config, pool: ProviderPool, prompt: str, as_json: bool, re
     # JSON output must be clean, so never stream tokens to stdout in that mode.
     agent_config = config.override(stream=False) if as_json else config
     ui = OneShotJsonUI() if as_json else ReplUI()
-    outcome = Agent(agent_config, pool).run_turn(session, ui, threading.Event())
-    session.autosave()  # persist so `scoot -c` can continue this conversation
+    try:
+        outcome = Agent(agent_config, pool).run_turn(session, ui, threading.Event())
+    except BaseException as exc:
+        session.record_error(exc)
+        raise
+    finally:
+        session.autosave()  # persist so `scoot -c` can continue this conversation, however the turn ended
+    if outcome.status == "error":
+        session.record_error(message=outcome.error, detail=outcome.detail)
     session_event(session, "SessionEnd", reason=outcome.status)
 
     if as_json:

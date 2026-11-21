@@ -119,7 +119,7 @@ Every item starts with a failing test, and each release is checked against the a
 
 ### 0.15.0: on the web
 
-Implemented and committed on `dev`; not released yet.
+Released 2026-11-20.
 
 - [x] **`web_search` (SearXNG).**
   Off unless `SCOOT_SEARCH_URL` is set, never auto-approved even in `yolo`, results marked untrusted, the endpoint not settable from a project `.env`.
@@ -128,28 +128,33 @@ Implemented and committed on `dev`; not released yet.
 - [x] **Two-key approval prompt.**
   `approve [a]` or `skip [s]` for every tool in the REPL; session-wide approval is the mode, not a key at the prompt.
 - [x] **agents-at-work bridge:** updated and deployed for the shorter `options` on `web_search` (2026-11-20).
-- [ ] **To release:** merge the PR to `main`, tag, and upload to PyPI.
+- [x] **Released:** merged to `main`, tagged `v0.15.0`, and uploaded to PyPI (2026-11-20).
 
 ### 0.16.0: picks up where it stopped
 
 Reliability, in `agent.py`, `repl.py`, `headless.py`, `cli.py`, `sessions.py`, and `transport.py`.
 The first two items hook the same turn-exit paths, so they are built and tested together.
+Implemented on `dev` and live-tested 2026-11-20; not released yet.
 
-- [ ] **Mid-turn session saves.**
+- [x] **Mid-turn session saves.**
   Today the session is saved once, at the end of a successful turn, so a crash or a killed terminal loses the whole turn, prompt included.
   Save the prompt before work, each proposed tool batch before execution, each completed tool result, and on every turn exit (errors and Ctrl-C too), in the REPL, headless, and one-shot.
   Resume already repairs missing tool results; partial failed model streams stay unpersisted.
-- [ ] **Persistent `/error` diagnostics.**
+- [x] **Persistent `/error` diagnostics.**
   The bar shows only a short `last_error` label.
   Keep the latest error per session outside model history so it survives compaction and restart: an atomic owner-only record through `store.py`, size-capped, with a metadata-only traceback (errno, status, stack locations; never exception text, locals, argv, credentials, or payloads).
   `/forget` removes it.
-- [ ] **Interrupt cancels a connection that is still being made.**
+- [x] **Interrupt cancels a connection that is still being made.**
   ESC or a headless `interrupt` during the connect phase is honoured only after the 30 s connect timeout, because the watcher in `transport.py` can only shut down a socket that already exists.
   It applies to every provider request and to `web_search`; found in the 0.15.0 live pass with an unroutable host.
   Make the connect (direct and through the proxy, TLS handshake included) cancellable within the watcher's poll interval.
-- [ ] **List prices for the models in use.**
+- [x] **List prices for the models in use.**
   `cost` is `null` for `anthropic/claude-haiku-5-5` and `openai/chat-latest`, so `/status` and the machine cost fields are blank for them.
   Review `pricing.py` against each provider's current list, and decide how an alias such as `chat-latest` is priced.
+  Done: an alias is priced as the vendor lists it, newer versions get their own rows, and Claude Haiku 5.5's long-prompt tier is applied call by call.
+- [x] **agents-at-work bridge:** checked against the mid-turn saves, the resume point after a kill, and the cost fields; no change needed (2026-11-20).
+- [x] **PyPI page links:** the published description links to the repository files at the release tag instead of to pypi.org.
+- [ ] **To release:** PR to `main`, tag, and upload to PyPI.
 
 ### 0.17.0: sees the whole workspace
 

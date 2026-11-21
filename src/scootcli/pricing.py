@@ -10,12 +10,14 @@ from typing import Optional, Tuple
 
 from .providers.base import split_model_id
 
-UPDATED = "2026-09-06"
+UPDATED = "2026-11-20"
 
 # (model id prefix, input, cached input, output). Longest matching prefix wins.
 # Anthropic: cache reads are 10% of input; cache writes (25% premium) are counted as plain input here.
 PRICES = [
-    # OpenAI (developers.openai.com/api/docs/pricing)
+    # OpenAI (developers.openai.com/api/docs/pricing). ``chat-latest`` is a moving alias for the model
+    # behind ChatGPT; it is priced as the alias is listed, and re-checked with the rest of the table.
+    ("chat-latest", 5.00, 0.50, 30.00),
     ("gpt-5.6-astra", 10.00, 1.00, 50.00), ("gpt-5.6-sol", 4.00, 0.40, 20.00),
     ("gpt-5.6-terra", 2.00, 0.20, 12.00), ("gpt-5.6-luna", 0.20, 0.02, 1.20),
     ("gpt-5.5-pro", 30.00, 30.00, 180.00), ("gpt-5.5", 5.00, 0.50, 30.00),
@@ -28,11 +30,20 @@ PRICES = [
     ("gpt-4.1-mini", 0.40, 0.10, 1.60), ("gpt-4.1", 2.00, 0.50, 8.00),
     ("gpt-4o-mini", 0.15, 0.075, 0.60), ("gpt-4o", 2.50, 1.25, 10.00),
     # Anthropic (first-party API rates)
+    # A newer version is listed under its own, longer prefix, so it is never billed as the older one.
+    ("claude-fable-5-2", 8.00, 0.20, 40.00), ("claude-mythos-5-2", 8.00, 0.20, 40.00),
+    ("claude-fable-5-1", 10.00, 0.25, 50.00), ("claude-mythos-5-1", 10.00, 0.25, 50.00),
     ("claude-fable-5", 10.00, 1.00, 50.00), ("claude-mythos-5", 10.00, 1.00, 50.00),
+    ("claude-opus-5-5", 4.00, 0.20, 20.00),
     ("claude-opus-5", 5.00, 0.50, 25.00), ("claude-opus-4-8", 5.00, 0.50, 25.00),
     ("claude-opus-4-7", 5.00, 0.50, 25.00), ("claude-opus-4-6", 5.00, 0.50, 25.00),
+    ("claude-sonnet-5-5", 2.00, 0.10, 10.00),
     ("claude-sonnet-5", 2.00, 0.20, 10.00), ("claude-sonnet-4-6", 3.00, 0.30, 15.00),
-    ("claude-haiku-4-5", 1.00, 0.10, 5.00),
+    ("claude-haiku-5-5", 0.10, 0.01, 0.50), ("claude-haiku-4-5", 1.00, 0.10, 5.00),
+]
+# (model id prefix, prompt tokens above which one call is billed at the rates that follow).
+LONG_PROMPT = [
+    ("claude-haiku-5-5", 100_000, 0.50, 0.05, 2.50),
 ]
 _FREE_PROVIDERS = ("ollama",)
 
@@ -59,6 +70,41 @@ def cost(model: str, prompt: int, completion: int, cached: int = 0) -> Optional[
     cached = max(0, min(int(cached or 0), int(prompt or 0)))
     fresh = int(prompt or 0) - cached
     return (fresh * inp + cached * cached_price + int(completion or 0) * out) / 1_000_000
+
+
+def _long_prompt_price(model: str, prompt: int) -> Optional[Tuple[float, float, float]]:
+    _provider, name = split_model_id(model)
+    name = (name or model or "").lower()
+    for prefix, threshold, inp, cached, out in LONG_PROMPT:
+        if name.startswith(prefix) and int(prompt or 0) > threshold:
+            return (inp, cached, out)
+    return None
+
+
+def call_cost(model: str, prompt: int, completion: int, cached: int = 0) -> Optional[float]:
+    """USD for one call, at the long-prompt rates when that call's prompt is over the model's limit."""
+    p = _long_prompt_price(model, prompt)
+    if p is None:
+        return cost(model, prompt, completion, cached)
+    inp, cached_price, out = p
+    cached = max(0, min(int(cached or 0), int(prompt or 0)))
+    return ((int(prompt or 0) - cached) * inp + cached * cached_price + int(completion or 0) * out) / 1_000_000
+
+
+def surcharge(model: str, prompt: int, completion: int, cached: int = 0) -> float:
+    """What one call costs above the base rates (zero unless it crossed a long-prompt limit).
+
+    Usage is kept as per-model totals, and a tier depends on each call's own prompt size, so the
+    accounting adds this per call next to the totals (see :func:`usage_cost`)."""
+    base = cost(model, prompt, completion, cached)
+    full = call_cost(model, prompt, completion, cached)
+    return 0.0 if base is None or full is None else max(0.0, full - base)
+
+
+def usage_cost(model: str, usage: dict) -> Optional[float]:
+    """USD for a per-model usage slot (``prompt``/``completion``/``cached`` totals plus ``surcharge``)."""
+    base = cost(model, usage.get("prompt", 0), usage.get("completion", 0), usage.get("cached", 0))
+    return None if base is None else base + float(usage.get("surcharge", 0) or 0)
 
 
 def cached_tokens(usage: dict) -> int:

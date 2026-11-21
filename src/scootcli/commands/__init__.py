@@ -54,6 +54,7 @@ def load_builtins() -> None:
     from . import route as _route  # noqa: F401
     from . import hooks as _hooks  # noqa: F401
     from . import scope as _scope  # noqa: F401
+    from . import error as _error  # noqa: F401
 
     _loaded = True
 

@@ -120,13 +120,14 @@ def test_one_shot_fails_fast_with_guidance(monkeypatch, tmp_path, capsys):
     assert rc == 1 and "ollama pull llama3.2" in err
 
 
-def test_session_without_an_assistant_reply_is_not_saved(monkeypatch, tmp_path):
+def test_prompt_sent_with_no_provider_set_up_is_not_saved(monkeypatch, tmp_path):
     from scootcli import sessions
     from scootcli.repl import ReplSession
 
     monkeypatch.setenv("SCOOT_STATE_DIR", str(tmp_path / "state"))
     s = ReplSession(Config().override(root=str(tmp_path)), provider=None)
     s.messages.append({"role": "user", "content": "hi"})
+    s.provider_ready = False  # nothing could have answered it
     s.autosave()
     assert sessions.latest_for_root(str(tmp_path)) is None
     s.messages.append({"role": "assistant", "content": "hello"})

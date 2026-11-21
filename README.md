@@ -190,6 +190,7 @@ scoot --no-panel --no-dock           # plain prompt, no status bar (also what yo
 /route     how auto picks a model
 /sessions  list saved sessions      /resume    resume a saved session ([id])
 /forget    delete session(s)        /panel     toggle the bottom status bar
+/error     this session's last error
 /verbosity feed detail (full|compact|quiet)
 /c         copy last answer (Ctrl-S) /exit      quit (also Ctrl-C)
 ```
@@ -230,7 +231,9 @@ A commit or merge that fails keeps the worktree and your files; nothing is remov
 
 Responses stream live and stay interruptible.
 Drag an image into the prompt and a vision-capable model describes it into the turn as text, so even a text-only coding model can act on it; `SCOOT_VISION_MODEL` pins the describer, `--no-images` turns the feature off.
-Every turn auto-saves under `~/.local/state/scoot/sessions/` (owner-only, secrets redacted, last 20 kept); `scoot --continue` or `/resume` picks up where you left off.
+Sessions auto-save under `~/.local/state/scoot/sessions/` (owner-only, secrets redacted, last 20 kept), and not only when a turn ends: the prompt is saved before work starts, then each proposed tool batch and each tool result, so a crash or a killed terminal loses nothing that finished.
+`scoot --continue` or `/resume` picks up where you left off.
+When a turn fails, `/error` shows the latest error for the session (class, status, hint, and where it was raised), even after compaction or a restart.
 
 ### Automation: hooks and headless mode
 
@@ -313,6 +316,7 @@ What scoot protects, and what it does not.
 - **Web search is opt-in and always asks.** `web_search` exists only when you set `SCOOT_SEARCH_URL` yourself; a project `.env` cannot set it. Every query is shown and confirmed in every mode, and results are passed to the model as untrusted text.
 - **The default is `yolo`.** Tool calls run without asking, except the denylist, web searches, and paths outside the workspace. Use `--approval always` or `auto-read` on code you do not trust yet, and `/worktree start` to keep autonomous edits out of your checkout.
 - **Saved sessions** are owner-only, keyed by workspace, and pruned to the last 20; `/forget all` removes them. Session ids are file names, never paths.
+- **The `/error` record** is owner-only and holds metadata only: the error class, status or `errno`, and stack locations. It never holds local variables, payloads, or credentials, and it is deleted with its session.
 - No third-party dependencies means no third-party code to audit.
 
 ## Contributing
