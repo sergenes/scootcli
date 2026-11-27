@@ -385,7 +385,7 @@ class Agent:
             try:
                 from .workspace import workspace_context
 
-                ctx = workspace_context(cfg.root)
+                ctx = workspace_context(cfg.root, hidden=getattr(cfg, "hidden_files", True))
             except Exception:
                 ctx = ""
         try:

@@ -21,7 +21,8 @@ def _make_tree(root: Path) -> None:
     (root / "src" / "pkg" / "b.py").write_text("y")
     (root / "tests" / "test_a.py").write_text("z")
     (root / "README.md").write_text("hi")
-    (root / ".hidden").write_text("nope")        # dotfile → skipped
+    (root / ".hidden").write_text("shown")       # a dotfile is listed since 0.17.0
+    (root / ".env").write_text("KEY=nope")       # a secret-bearing file never is
 
 
 def test_render_tree_skips_noise_and_shows_structure():
@@ -31,9 +32,12 @@ def test_render_tree_skips_noise_and_shows_structure():
         tree = render_tree(root)
         assert "src/" in tree and "pkg/" in tree and "tests/" in tree
         assert "README.md" in tree and "a.py" in tree
-        # Noise directories and dotfiles are excluded.
-        for noise in ("__pycache__", ".git", "node_modules", ".hidden"):
+        assert ".hidden" in tree
+        # Noise directories and secret-bearing files are excluded.
+        for noise in ("__pycache__", ".git", "node_modules", ".env"):
             assert noise not in tree
+        # SCOOT_HIDDEN_FILES=0: no dot-names, as before 0.17.0.
+        assert ".hidden" not in render_tree(root, hidden=False)
 
 
 def test_render_tree_respects_depth_limit():

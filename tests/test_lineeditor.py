@@ -273,6 +273,25 @@ def test_editor_stores_on_copy_callback():
     assert marker == [1]
 
 
+def test_copy_feedback_returns_to_the_first_column(capsys):
+    # The terminal is in raw mode while the editor reads, so the feedback's "\\n" alone would leave
+    # the next output starting mid-row. The carriage return comes before the cursor is re-saved.
+    from scootcli.lineeditor import LineEditor
+
+    ed = LineEditor(enabled=False, on_copy=lambda: print("copied"))
+    ed._handle_copy()
+    out = capsys.readouterr().out
+    assert "copied\n\r\0337" in out
+
+
+def test_completion_listing_ends_each_row_with_cr_lf(capsys):
+    from scootcli.lineeditor import LineEditor
+
+    LineEditor(enabled=False)._show_listing(["agent.py", "auth.py"])
+    out = capsys.readouterr().out
+    assert out.startswith("\0338") and "auth.py" in out and "\r\n\0337" in out
+
+
 # ── Multi-row wrapping geometry (pure, TTY-free) ───────────────────────────────
 def test_wrap_layout_single_row_when_short():
     from scootcli.lineeditor import wrap_layout
@@ -350,60 +369,165 @@ def test_statusbar_with_layout_reserves_dynamically():
 _CMDS = ["help", "verbosity", "version", "reset", "resume", "status"]
 
 
-def test_tab_completes_unique_prefix():
-    from scootcli.lineeditor import EditorState, apply_key, cycle_completion
+def _tab(state, entries=None):
+    from scootcli.lineeditor import complete
 
-    s = _feed(list("/he"))
-    s = cycle_completion(s, _CMDS)
+    return complete(state, _CMDS, entries)
+
+
+def test_tab_completes_unique_prefix():
+    s, listing = _tab(_feed(list("/he")))
     assert s.buffer == "/help"
     assert s.cursor == len("/help")
+    assert listing == ()
 
 
-def test_tab_cycles_matches_alphabetically():
-    from scootcli.lineeditor import cycle_completion
-
-    s = _feed(list("/ve"))
-    s = cycle_completion(s, _CMDS)
-    assert s.buffer == "/verbosity"  # alphabetically before /version
-    s = cycle_completion(s, _CMDS)
+def test_first_tab_lists_ambiguous_commands_then_cycles():
+    s, listing = _tab(_feed(list("/ve")))
+    assert listing == ("/verbosity", "/version")   # every match, on the first Tab
+    assert s.buffer == "/ver"                       # extended to the common prefix
+    s, listing = _tab(s)
+    assert s.buffer == "/verbosity" and listing == ()  # alphabetically before /version
+    s, _ = _tab(s)
     assert s.buffer == "/version"
-    s = cycle_completion(s, _CMDS)  # wraps back to the first match
+    s, _ = _tab(s)  # wraps back to the first match
     assert s.buffer == "/verbosity"
 
 
-def test_tab_on_bare_slash_cycles_all():
-    from scootcli.lineeditor import cycle_completion
+def test_first_tab_extends_commands_to_their_common_prefix():
+    s, listing = _tab(_feed(list("/r")))
+    assert s.buffer == "/res" and listing == ("/reset", "/resume")
+    s, _ = _tab(s)
+    assert s.buffer == "/reset"
 
-    s = _feed(["/"])
-    s = cycle_completion(s, _CMDS)
+
+def test_tab_on_bare_slash_lists_all():
+    s, listing = _tab(_feed(["/"]))
+    assert s.buffer == "/" and len(listing) == len(_CMDS)
+    s, _ = _tab(s)
     assert s.buffer == "/help"  # first alphabetically
 
 
 def test_tab_no_match_leaves_buffer():
-    from scootcli.lineeditor import cycle_completion
-
-    s = _feed(list("/zzz"))
-    s = cycle_completion(s, _CMDS)
+    s, listing = _tab(_feed(list("/zzz")))
     assert s.buffer == "/zzz"
-    assert s.comp_prefix is None
+    assert s.comp_prefix is None and listing == ()
 
 
-def test_non_slash_tab_is_noop():
-    from scootcli.lineeditor import cycle_completion
-
-    s = _feed(list("hello"))
-    s = cycle_completion(s, _CMDS)
-    assert s.buffer == "hello"
+def test_tab_without_a_path_lister_is_noop():
+    s, listing = _tab(_feed(list("hello")))
+    assert s.buffer == "hello" and listing == ()
 
 
 def test_typing_breaks_completion_cycle():
-    from scootcli.lineeditor import apply_key, cycle_completion
+    from scootcli.lineeditor import apply_key
 
-    s = _feed(list("/ve"))
-    s = cycle_completion(s, _CMDS)   # → /verbosity, cycle live
+    s, _ = _tab(_feed(list("/ve")))
+    s, _ = _tab(s)                   # → /verbosity, cycle live
     s = apply_key(s, "x")            # any key ends the cycle and inserts normally
     assert s.comp_prefix is None
     assert s.buffer == "/verbosityx"
+
+
+# ── 0.17.0: Tab completes file paths ────────────────────────────────────────────
+_TREE = {
+    "": [("src", True), ("setup.py", False), ("setup.cfg", False), ("README.md", False),
+         (".github", True), (".gitignore", False)],
+    "src/": [("scootcli", True)],
+    "src/scootcli/": [("agent.py", False), ("approvals.py", False), ("auth.py", False)],
+    "~/": [("notes", True)],
+    "/": [("usr", True), ("var", True)],
+}
+
+
+def _entries(directory):
+    return _TREE[directory]
+
+
+def test_tab_inserts_a_unique_file_with_a_space_and_a_directory_with_a_slash():
+    s, listing = _tab(_feed(list("read REA")), _entries)
+    assert s.buffer == "read README.md " and listing == ()
+    s, _ = _tab(_feed(list("look in sr")), _entries)
+    assert s.buffer == "look in src/"
+    s, _ = _tab(s, _entries)                       # the only entry of src/
+    assert s.buffer == "look in src/scootcli/"
+
+
+def test_tab_extends_to_the_common_prefix_then_lists_on_the_second_tab():
+    s, listing = _tab(_feed(list("open se")), _entries)
+    assert s.buffer == "open setup." and listing == ()
+    s, listing = _tab(s, _entries)
+    assert s.buffer == "open setup." and listing == ("setup.cfg", "setup.py")
+
+
+def test_tab_with_nothing_to_extend_lists_on_the_second_tab():
+    s, listing = _tab(_feed(list("src/scootcli/a")), _entries)
+    assert listing == () and s.buffer == "src/scootcli/a"
+    s, listing = _tab(s, _entries)
+    assert listing == ("agent.py", "approvals.py", "auth.py")
+
+
+def test_tab_offers_dot_entries_only_when_a_dot_is_typed():
+    s, listing = _tab(_feed(list("see s")), _entries)   # .github does not get in the way of s…
+    s, listing = _tab(s, _entries)
+    assert ".github/" not in listing and ".gitignore" not in listing
+    s, _ = _tab(_feed(list("see .gith")), _entries)
+    assert s.buffer == "see .github/"
+    s, _ = _tab(_feed(list("see .")), _entries)
+    assert s.buffer == "see .git"                        # common prefix of .github and .gitignore
+
+
+def test_tab_completes_home_and_absolute_paths_and_mid_line_words():
+    from scootcli.lineeditor import EditorState
+
+    s, _ = _tab(_feed(list("cat ~/no")), _entries)
+    assert s.buffer == "cat ~/notes/"
+    s, _ = _tab(_feed(list("/us")), _entries)            # no command starts with "us": a path
+    assert s.buffer == "/usr/"
+    s, _ = _tab(EditorState(buffer="diff REA and x", cursor=len("diff REA")), _entries)
+    assert s.buffer == "diff README.md and x" and s.cursor == len("diff README.md")
+    s, _ = _tab(EditorState(buffer="diff README", cursor=4), _entries)  # caret inside a word: no-op
+    assert s.buffer == "diff README"
+
+
+def test_tab_survives_a_lister_that_fails_and_an_empty_word():
+    def boom(_directory):
+        raise OSError("gone")
+
+    s, listing = _tab(_feed(list("cat nope/x")), boom)
+    assert s.buffer == "cat nope/x" and listing == ()
+    s, listing = _tab(_feed(list("cat ")), _entries)
+    assert s.buffer == "cat " and listing == ()
+
+
+def test_format_columns_fits_the_width_and_caps_the_rows():
+    from scootcli.lineeditor import format_columns
+
+    lines = format_columns(["agent.py", "approvals.py", "auth.py"], cols=60)
+    assert lines == ["agent.py      approvals.py  auth.py"]
+    assert all(len(line) < 20 for line in format_columns(["a" * 50, "b"], cols=20))
+    many = format_columns([f"file{i:03d}.txt" for i in range(200)], cols=40, max_rows=4)
+    assert len(many) == 4 and many[-1].startswith("… +") and many[-1].endswith("more")
+    shown = sum(len(line.split()) for line in many[:-1])
+    assert shown + int(many[-1].split("+")[1].split()[0]) == 200
+    assert format_columns([], 80) == []
+
+
+def test_repl_path_entries_follow_the_root_and_skip_noise(tmp_path):
+    from types import SimpleNamespace
+
+    from scootcli.repl import Repl
+
+    (tmp_path / "src").mkdir()
+    (tmp_path / ".git").mkdir()
+    (tmp_path / "node_modules").mkdir()
+    (tmp_path / ".github").mkdir()
+    (tmp_path / "a.txt").write_text("x")
+    (tmp_path / ".DS_Store").write_text("x")
+    fake = SimpleNamespace(session=SimpleNamespace(config=SimpleNamespace(root=tmp_path)))
+    found = dict(Repl._path_entries(fake, ""))
+    assert found == {"src": True, ".github": True, "a.txt": False}
+    assert dict(Repl._path_entries(fake, str(tmp_path) + "/")) == found   # absolute works too
 
 
 if __name__ == "__main__":

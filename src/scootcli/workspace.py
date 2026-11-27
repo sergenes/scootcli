@@ -12,11 +12,8 @@ import subprocess
 from pathlib import Path
 from typing import List
 
-_SKIP_DIRS = {
-    ".git", ".hg", ".svn", "__pycache__", ".mypy_cache", ".pytest_cache", ".ruff_cache",
-    "node_modules", ".venv", "venv", "dist", "build", ".idea", ".vscode", ".cache",
-    ".egg-info",
-}
+from . import pathpolicy
+
 _MAX_DEPTH = 2
 _MAX_ENTRIES = 120
 _MAX_FILES_PER_DIR = 12
@@ -45,12 +42,20 @@ def _git_summary(root: Path) -> str:
     return f"branch {branch}, {dirty} uncommitted change(s)"
 
 
-def _is_hidden(name: str) -> bool:
-    return name.startswith(".") and name not in (".github", ".env.example")
+# With hidden files off, these two still appear: the map showed them before hidden files were on.
+_ALWAYS_SHOWN = (".github", ".env.example")
 
 
-def render_tree(root: Path, max_depth: int = _MAX_DEPTH, max_entries: int = _MAX_ENTRIES) -> str:
-    """Return a compact indented tree (dirs first), depth- and entry-bounded."""
+def render_tree(root: Path, max_depth: int = _MAX_DEPTH, max_entries: int = _MAX_ENTRIES,
+                hidden: bool = True) -> str:
+    """Return a compact indented tree (dirs first), depth- and entry-bounded.
+
+    What is listed is decided by :mod:`scootcli.pathpolicy`. Dot-names sort after the others, so
+    they never push a project's main files out of the per-directory budget.
+    """
+    def dots_ok(name: str) -> bool:
+        return hidden or name in _ALWAYS_SHOWN
+
     lines: List[str] = []
     budget = max_entries
 
@@ -59,15 +64,16 @@ def render_tree(root: Path, max_depth: int = _MAX_DEPTH, max_entries: int = _MAX
         if depth > max_depth or budget <= 0:
             return
         try:
-            children = sorted(directory.iterdir(), key=lambda c: (c.is_file(), c.name.lower()))
+            children = sorted(directory.iterdir(),
+                              key=lambda c: (c.is_file(), c.name.startswith("."), c.name.lower()))
         except OSError:
             return
         # Symlinks are skipped in both lists: a link to a directory outside the workspace would put
         # its file names into the prompt, and the map is meant to describe this checkout only.
         dirs = [c for c in children if c.is_dir() and not c.is_symlink()
-                and c.name not in _SKIP_DIRS and not c.name.endswith(".egg-info")
-                and not _is_hidden(c.name)]
-        files = [c for c in children if c.is_file() and not c.is_symlink() and not _is_hidden(c.name)]
+                and not pathpolicy.skip_dir(c.name, dots_ok(c.name), outputs=True)]
+        files = [c for c in children if c.is_file() and not c.is_symlink()
+                 and not pathpolicy.skip_file(c.name, dots_ok(c.name))]
         indent = "  " * depth
         for child in dirs:
             if budget <= 0:
@@ -90,7 +96,8 @@ def render_tree(root: Path, max_depth: int = _MAX_DEPTH, max_entries: int = _MAX
     return "\n".join(lines)
 
 
-def workspace_context(root, max_depth: int = _MAX_DEPTH, max_entries: int = _MAX_ENTRIES) -> str:
+def workspace_context(root, max_depth: int = _MAX_DEPTH, max_entries: int = _MAX_ENTRIES,
+                      hidden: bool = True) -> str:
     """Compose the workspace map (git summary + tree). Returns '' if nothing useful is available."""
     root = Path(root)
     if not root.is_dir():
@@ -99,7 +106,7 @@ def workspace_context(root, max_depth: int = _MAX_DEPTH, max_entries: int = _MAX
     git = _git_summary(root)
     if git:
         parts.append(f"- git: {git}")
-    tree = render_tree(root, max_depth, max_entries)
+    tree = render_tree(root, max_depth, max_entries, hidden)
     if tree:
         indented = "\n".join("  " + line for line in tree.splitlines())
         parts.append("- files:\n" + indented)

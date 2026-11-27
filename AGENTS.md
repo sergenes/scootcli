@@ -23,10 +23,11 @@ Models are addressed as `provider/model`.
   - `images.py` / `vision.py`: image path detection, encoding, and description through the provider layer.
   - `sessions.py` / `context.py` / `project.py` / `worktree.py` / `workspace.py` / `clipboard.py`: persistence, compaction, `/init`, worktrees, repo map, clipboard.
   - `diagnostics.py`: the latest error per session, metadata only, behind `/error`.
+  - `pathpolicy.py`: the one list of what `search`, the workspace map, `/init`, and Tab completion skip (noise, secret-bearing files, symlinks); add a name there, never in a caller.
   - `commands/`: slash commands (drop-in registry).
   - `tools/`: `read_file`, `list_dir`, `search`, `write_file`, `edit_file`, `run_shell`, `update_plan`, and the opt-in `web_search` (SearXNG, only when `SCOOT_SEARCH_URL` is set) (drop-in registry, path-sandboxed).
   - `presets.py`: `explain` and `edit` presets that seed the same agent.
-- `tests/`: network-free pytest suite (`conftest.py` restores the environment around each test).
+- `tests/`: network-free pytest suite (`conftest.py` restores the environment around each test); the ripgrep cases skip when `rg` is not installed, and CI installs it.
 - `scripts/build.sh`: builds `dist/scoot.pyz`, the wheel, and the sdist.
 - `pyproject.toml`: packaging; the version lives in `scootcli/__init__.py`.
 - `setup.py`: only the PyPI description, the README with its relative links rewritten to GitHub at the release tag, so push the `vX.Y.Z` tag before uploading to PyPI.

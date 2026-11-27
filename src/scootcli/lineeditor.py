@@ -9,8 +9,8 @@ M14a shipped: printable insert, Backspace, Enter (submit), Ctrl-C (interrupt), C
 M14b adds full line editing: ←/→ + Ctrl-B/F, Home/End + Ctrl-A/E, Ctrl-U/K/W kill ops, forward Delete,
 ↑/↓ (and Ctrl-P/N) history recall. M14c adds bracketed paste: a multi-line paste arrives as one payload
 (ESC[200~ … ESC[201~) and is inserted via :func:`insert_text` with newlines flattened to spaces, so it
-never submits mid-paste. **Tab** completes/cycles a leading ``/command`` name (:func:`cycle_completion`,
-fed by the command registry via a ``completer`` callback).
+never submits mid-paste. **Tab** completes a leading ``/command`` name or a file path (:func:`complete`,
+fed by the command registry and a directory lister); several matches are listed above the input.
 
 Rendering has two modes. Without a :class:`~scootcli.panel.DockLayout` the input is a single row that
 scrolls horizontally (legacy). With a layout, a long line **wraps onto extra rows** and the dock grows
@@ -55,7 +55,7 @@ _BACKSPACE = ("\x7f", "\b")
 _CTRL_C = "\x03"
 _CTRL_D = "\x04"
 _CTRL_S = "\x13"  # copy the last answer to the clipboard ("save"); deliverable because raw mode is on
-_TAB = "\t"  # slash-command completion (cycles through matches)
+_TAB = "\t"  # completion: a /command name or a file path
 
 # Logical key tokens (multi-char so they never collide with a printable insert). The reader translates
 # raw ESC sequences and editing control bytes into these before calling apply_key.
@@ -112,8 +112,9 @@ class EditorState:
     hist_pos: int = 0
     stash: str = ""
     cleared: bool = False    # ↓ on the live line stashed the draft into ``stash`` and blanked it; ↑ restores
-    comp_prefix: object = None  # base prefix captured on the first Tab of a completion cycle (None = idle)
-    comp_index: int = 0         # which match the last Tab landed on (cycles with repeated Tab)
+    comp_prefix: object = None  # what the first Tab of a completion run started from (None = idle)
+    comp_index: int = 0         # which command the last Tab landed on (-1: listed, none inserted yet)
+    comp_kind: str = ""         # "command" while cycling commands, "path" after an ambiguous path Tab
 
     @property
     def done(self) -> bool:
@@ -164,10 +165,10 @@ def _history_next(state: EditorState) -> EditorState:
 
 def apply_key(state: EditorState, key: str) -> EditorState:
     """Pure transition: given the current state and a key (raw char or logical token), return next."""
-    # Any key other than Tab breaks an in-progress completion cycle (Tab is handled by the reader,
-    # which calls cycle_completion directly, so it never reaches here).
+    # Any key other than Tab ends a completion run (Tab is handled by the reader, which calls
+    # complete() directly, so it never reaches here).
     if state.comp_prefix is not None:
-        state = replace(state, comp_prefix=None)
+        state = replace(state, comp_prefix=None, comp_kind="")
     # Terminating keys.
     if key == _CTRL_C:
         return replace(state, interrupt=True)
@@ -253,40 +254,114 @@ def insert_text(state: EditorState, text: str) -> EditorState:
     )
 
 
-def cycle_completion(state: EditorState, candidates) -> EditorState:
-    """Tab: complete/cycle a leading slash-command name. Pure and unit-testable.
+def _common_prefix(names) -> str:
+    return os.path.commonprefix(list(names))
 
-    Only acts when the buffer is a bare ``/word`` token (a slash followed by zero or more
-    non-space chars, cursor at end). On the first Tab it captures that prefix, finds the matching
-    command names in alphabetical order, and shows the first match; each further Tab (with the cycle
-    still live) advances to the next match, wrapping around. ``candidates`` are command names
-    *without* the leading slash. Any non-Tab key clears the cycle (see :func:`apply_key`).
+
+def complete(state: EditorState, commands=(), entries=None):
+    """Tab. Returns ``(next_state, listing)``; ``listing`` is the names to show, empty for none.
+
+    A buffer that is one ``/word`` completes as a slash command. Any other word under the caret
+    completes as a file path (so does a ``/word`` no command starts with, which may be an absolute
+    path). ``commands`` are names without the slash; ``entries(directory_text)`` returns the
+    ``(name, is_dir)`` pairs of the directory typed so far (``""`` for the workspace root). Pure and
+    unit-testable. Any other key ends a completion run (see :func:`apply_key`).
     """
     buf = state.buffer
-    # Must be a single leading slash token with the cursor at the end (no mid-line completion).
-    if not buf.startswith("/") or " " in buf or state.cursor != len(buf):
-        return replace(state, comp_prefix=None)
+    if buf.startswith("/") and " " not in buf and state.cursor == len(buf):
+        done = _complete_command(state, commands)
+        if done is not None:
+            return done
+    return _complete_path(state, entries)
 
-    # The prefix to match against is captured on the first Tab of a cycle; on later Tabs we keep the
-    # original prefix so cycling stays anchored even though the buffer now holds a full command name.
-    prefix = state.comp_prefix if state.comp_prefix is not None else buf[1:]
-    matches = sorted(n for n in candidates if n.startswith(prefix))
+
+def _complete_command(state: EditorState, commands):
+    """One match is inserted. Several: the first Tab extends to their common prefix and lists them,
+    each further Tab inserts the next one, wrapping. ``None`` when no command matches."""
+    cycling = state.comp_prefix is not None and state.comp_kind == "command"
+    prefix = state.comp_prefix if cycling else state.buffer[1:]
+    matches = sorted(n for n in commands if n.startswith(prefix))
     if not matches:
-        return replace(state, comp_prefix=None)
-
-    if state.comp_prefix is None:
-        index = 0  # first Tab → first match
+        return None
+    listing = ()
+    if len(matches) == 1:
+        text, prefix, index = "/" + matches[0], None, 0
+    elif not cycling:
+        text, index = "/" + _common_prefix(matches), -1
+        listing = tuple("/" + m for m in matches)
     else:
-        index = (state.comp_index + 1) % len(matches)  # subsequent Tab → next match (wraps)
-    completed = "/" + matches[index]
-    return replace(
-        state,
-        buffer=completed,
-        cursor=len(completed),
-        comp_prefix=prefix,
-        comp_index=index,
-        cleared=False,
-    )
+        index = (state.comp_index + 1) % len(matches)
+        text = "/" + matches[index]
+    return replace(state, buffer=text, cursor=len(text), comp_prefix=prefix, comp_index=index,
+                   comp_kind="command", cleared=False), listing
+
+
+def _complete_path(state: EditorState, entries):
+    """Complete the word that ends at the caret as a path.
+
+    One match is inserted (a directory ends in ``/``, a file at the end of the line gets a space).
+    Several extend the word to their common prefix; a second Tab in a row lists them. Dot-names are
+    offered only once a ``.`` is typed.
+    """
+    idle = replace(state, comp_prefix=None, comp_kind="")
+    buf, cur = state.buffer, state.cursor
+    if entries is None or (cur < len(buf) and buf[cur] != " "):
+        return idle, ()
+    start = buf.rfind(" ", 0, cur) + 1
+    word = buf[start:cur]
+    if not word:
+        return idle, ()
+    if word == "~":
+        directory, base = "~/", ""
+    else:
+        cut = word.rfind("/") + 1
+        directory, base = word[:cut], word[cut:]
+    try:
+        found = sorted(set((str(n), bool(d)) for n, d in entries(directory)))
+    except Exception:
+        found = []
+    found = [(n, d) for n, d in found if n.startswith(base) and (base.startswith(".") or not n.startswith("."))]
+    if not found:
+        return idle, ()
+
+    def put(text: str, **marks) -> EditorState:
+        return replace(state, buffer=buf[:start] + text + buf[cur:], cursor=start + len(text),
+                       cleared=False, **marks)
+
+    if len(found) == 1:
+        name, is_dir = found[0]
+        tail = "/" if is_dir else (" " if cur == len(buf) else "")
+        return put(directory + name + tail, comp_prefix=None, comp_kind=""), ()
+    common = _common_prefix(n for n, _ in found)
+    if len(common) > len(base):
+        grown = directory + common
+        return put(grown, comp_prefix=grown, comp_kind="path"), ()
+    if state.comp_kind == "path" and state.comp_prefix == word:  # the second Tab in a row
+        return state, tuple(n + ("/" if d else "") for n, d in found)
+    return replace(state, comp_prefix=word, comp_kind="path"), ()
+
+
+_MAX_LISTING_ROWS = 8
+
+
+def format_columns(names, cols: int, max_rows: int = _MAX_LISTING_ROWS):
+    """Lay ``names`` out in columns that fit ``cols``, filled row by row; at most ``max_rows`` lines,
+    the last one saying how many names were left out. Pure and unit-testable."""
+    names = list(names)
+    if not names:
+        return []
+    width = max(1, int(cols) - 1)
+    cell = min(max(len(n) for n in names) + 2, width)
+    per_row = max(1, width // cell)
+    rows = [names[i:i + per_row] for i in range(0, len(names), per_row)]
+    left = 0
+    if len(rows) > max_rows:
+        left = sum(len(r) for r in rows[max_rows - 1:])
+        rows = rows[:max_rows - 1]
+    lines = ["".join(n[:cell - 2].ljust(cell) for n in row).rstrip() for row in rows]
+    if left:
+        lines.append(f"… +{left} more")
+    return lines
 
 
 # ── Pure wrapping geometry (unit-testable, no TTY) ─────────────────────────────
@@ -337,13 +412,14 @@ class LineEditor:
     CURSOR_REPORT_TIMEOUT = 0.15
 
     def __init__(self, enabled: bool = True, on_copy=None, layout=None, on_reflow=None, completer=None,
-                 resize=None):
+                 resize=None, path_entries=None):
         self.enabled = bool(enabled) and _HAVE_TERMIOS and sys.stdin.isatty() and sys.stdout.isatty()
         self.history: list = []  # submitted lines, oldest→newest (↑/↓ recall)
         self.on_copy = on_copy   # zero-arg callback for Ctrl-S (copies + prints its own feedback)
         self.layout = layout     # shared DockLayout for multi-row growth (None = legacy single row)
         self.on_reflow = on_reflow  # called after layout.input_rows changes (re-establish region+frame)
         self.completer = completer  # zero-arg callable → iterable of slash-command names (no leading /)
+        self.path_entries = path_entries  # directory text → (name, is_dir) pairs, for path completion
         self.resize = resize     # ResizeWatcher: wakes the read loop on SIGWINCH (None = poll on keys)
         self.active = False      # True while readline owns the terminal (the Repl's resize hook checks)
         self._drawn_rows = 1     # visual input-height currently on screen (drives clear-on-shrink)
@@ -405,8 +481,10 @@ class LineEditor:
                     state = insert_text(state, key[1])
                 elif key == "\x1b":  # lone ESC (no recognised sequence) → ignore
                     continue
-                elif key == _TAB:  # slash-command completion (cycle through matches)
-                    state = cycle_completion(state, self._candidates())
+                elif key == _TAB:  # complete a /command or a path; several matches are listed
+                    state, listing = complete(state, self._candidates(), self.path_entries)
+                    if listing:
+                        self._show_listing(listing)
                 else:
                     state = apply_key(state, key)
                 if state.copy:  # Ctrl-S: copy the last answer, then carry on editing
@@ -625,8 +703,23 @@ class LineEditor:
         try:
             self.on_copy()
         finally:
-            sys.stdout.write("\0337")  # DECSC: re-save for the next scroll-region write
+            # Raw mode: the callback's newline moved down without returning to the first column.
+            sys.stdout.write("\r\0337")  # CR, then DECSC: re-save for the next scroll-region write
             self._request_cursor("anchor")  # the feedback moved the anchor: learn its new row
+
+    def _show_listing(self, names) -> None:
+        """Print completion matches into the scroll region, the way the copy feedback is printed.
+
+        The terminal is in raw mode here, so each line ends in an explicit CR LF.
+        """
+        cols = shutil.get_terminal_size((80, 24)).columns
+        sys.stdout.write("\0338")  # DECRC: restore the in-region cursor
+        try:
+            for line in format_columns(names, cols):
+                sys.stdout.write(color(line, "gray") + "\r\n")
+        finally:
+            sys.stdout.write("\0337")  # DECSC: output resumes below the listing
+            self._request_cursor("anchor")
 
     def _render(self, prompt: str, state: EditorState) -> None:
         """Draw the prompt + buffer on the fixed input row(s) and place the caret at the edit point."""

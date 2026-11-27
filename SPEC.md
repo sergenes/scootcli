@@ -58,7 +58,7 @@ Readiness is checked for the provider of the active model, at start and again af
 A project value for one of them is ignored and named in a notice at start (`Config.ignored_project_keys`), so a cloned repository cannot redirect an authenticated request, run code, widen what the tools may touch, or move scoot's files.
 4.4 `.env` lines may carry an `export` prefix and single or double quotes; a variable already set in the environment is never overridden.
 4.5 `/status` shows which `.env` files were read.
-4.6 Settings and their variables: provider `SCOOT_PROVIDER`, model `SCOOT_MODEL`, effort `SCOOT_EFFORT`, approval `SCOOT_APPROVAL`, steps `SCOOT_MAX_STEPS`, compaction threshold `SCOOT_COMPACT_AT`, timeout `SCOOT_TIMEOUT`, root `SCOOT_ROOT`, streaming `SCOOT_STREAM`, panel `SCOOT_PANEL`, dock `SCOOT_DOCK`, resume policy `SCOOT_RESUME`, workspace map `SCOOT_WORKSPACE_CONTEXT`, labels `SCOOT_LABELS`, verbosity `SCOOT_VERBOSITY`, images `SCOOT_IMAGES`, vision model `SCOOT_VISION_MODEL`, image size cap `SCOOT_IMAGE_MAX_BYTES`, logo `SCOOT_LOGO`, emoji label `SCOOT_EMOJI`, state directory `SCOOT_STATE_DIR`, config directory `SCOOT_CONFIG_DIR`.
+4.6 Settings and their variables: provider `SCOOT_PROVIDER`, model `SCOOT_MODEL`, effort `SCOOT_EFFORT`, approval `SCOOT_APPROVAL`, steps `SCOOT_MAX_STEPS`, compaction threshold `SCOOT_COMPACT_AT`, timeout `SCOOT_TIMEOUT`, root `SCOOT_ROOT`, streaming `SCOOT_STREAM`, panel `SCOOT_PANEL`, dock `SCOOT_DOCK`, resume policy `SCOOT_RESUME`, workspace map `SCOOT_WORKSPACE_CONTEXT`, hidden files `SCOOT_HIDDEN_FILES`, labels `SCOOT_LABELS`, verbosity `SCOOT_VERBOSITY`, images `SCOOT_IMAGES`, vision model `SCOOT_VISION_MODEL`, image size cap `SCOOT_IMAGE_MAX_BYTES`, logo `SCOOT_LOGO`, emoji label `SCOOT_EMOJI`, state directory `SCOOT_STATE_DIR`, config directory `SCOOT_CONFIG_DIR`.
 4.7 A model chosen with `/model` and the `/logo on|off` choice persist in `~/.config/scoot/preferences.json`; an explicit flag or variable overrides them for that run.
 
 ## 5. The agent loop
@@ -73,6 +73,7 @@ Arguments that are not a JSON object never run a tool; the model is told to call
 5.5 A context-length error triggers one automatic compaction (§9) and a retry; a model-unavailable error switches to another model and retries, never re-selecting a model that already failed this turn (rules, classifier, default, and heuristic all skip the failed set) and bounded so it cannot alternate between two unavailable models.
 5.6 Streaming is on by default: tokens print as they arrive, the turn stays interruptible, and `--no-stream` or `--json` disables it.
 5.7 A compact workspace map (git branch and dirty count, bounded file tree) is injected into the system prompt each turn unless `--no-workspace`.
+The tree follows the path policy (6.3a), also leaves out build output (`dist`, `build`) and editor settings, and lists dot-names after the others.
 5.8 An `AGENTS.md` at the workspace root is injected into the system prompt when present; `/init` generates one.
 5.9 Pressing ESC during a turn cancels the in-flight request or tool at once, prints an interruption notice, and keeps the conversation.
 5.9a The interrupt is honoured while a connection is still being made (name lookup, TCP connect, proxy `CONNECT`, TLS handshake), within the same poll interval as an open connection, and does not wait for the 30-second connect timeout; a connection that completes after the interrupt is closed.
@@ -88,7 +89,15 @@ A path outside it is not rejected: before the tool runs, the user is asked, with
 `SCOOT_SCOPE=anywhere`, `--scope anywhere`, `/scope anywhere`, and `--yes` skip the question; `/scope workspace` revokes.
 A declined access is fed back to the model as `user declined access outside the workspace: <path>`.
 The system prompt tells the model that the workspace is its home, not a wall, so it uses absolute paths elsewhere instead of refusing or handing the user a script.
-6.3 `search` groups matches per file with bounded output, and without ripgrep walks the way ripgrep does by default: hidden files and directories, symlinks, and non-regular files are skipped, so a link inside the workspace cannot read a file outside it; the workspace map (5.7) skips symlinks the same way; `edit_file` applies an exact replacement and reports a diff; `write_file` reports the diff against any existing content.
+6.3 `search` groups matches per file with bounded output, with ripgrep when it is installed and a stdlib walk otherwise; `edit_file` applies an exact replacement and reports a diff; `write_file` reports the diff against any existing content.
+6.3a One path policy decides what `search`, the workspace map (5.7), the `/init` scan, and Tab completion (8.2) may show.
+Hidden names are visible, so `.github/` and `.gitlab-ci.yml` are found.
+Excluded are VCS internals, caches, virtual environments, dependency trees, `.scoot/`, and files and directories that usually hold credentials: `.env` and `.env.*` (except example files), `*.pem`, `*.key`, key stores, SSH private keys, `.netrc`, `.npmrc`, `.pypirc`, credential JSON, `.ssh/`, `.aws/`, and the like.
+Symlinks are never followed or read and only regular files are opened, so a link inside the workspace cannot read a file outside it.
+ripgrep's results are filtered against the same policy, so both backends return the same files.
+`SCOOT_HIDDEN_FILES=0` excludes every dot-name as well, the rule before 0.17.0.
+The policy does not apply to `read_file`, where the model names the path and the approval mode decides.
+6.3b `search` takes an optional `path`, a directory or a single file, inside or outside the workspace; an outside path is asked about like any other (6.2), results under the workspace are shown relative to its root and results elsewhere with absolute paths, and a file that the policy treats as credentials is refused.
 `write_file` requires `content`: an explicit empty string writes an empty file, a missing one is an error, never an emptied file.
 `edit_file` refuses a file that is not UTF-8 text rather than replace bytes it cannot represent, matches on LF-normalised text so a CRLF file can be quoted with plain newlines, and writes the file's own line endings back.
 Both write through a temporary sibling file and an atomic rename that preserves the file's mode, so a failed or interrupted write leaves the old file intact; an edit is refused when the file changed after it was read.
@@ -122,7 +131,10 @@ A commit or merge that fails keeps the worktree, the branch, and the session in 
 ## 8. The REPL
 
 8.1 The banner shows the mascot with the version, active model, workspace root, a resume hint or the resumed session, and key hints; `--no-logo` shows a plain box.
-8.2 Input is a fixed bottom dock with full line editing, history recall, bracketed paste, growth up to six rows for long lines, and Tab completion of slash commands; without a TTY, a plain prompt is used.
+8.2 Input is a fixed bottom dock with full line editing, history recall, bracketed paste, growth up to six rows for long lines, and Tab completion; without a TTY, a plain prompt is used.
+8.2b Tab on a lone `/word` completes a slash command: one match is inserted, several are extended to their common prefix and listed above the input, and each further Tab inserts the next one.
+Tab on any other word completes a path relative to the workspace root, or an absolute or `~` path: one match is inserted (a directory with a trailing `/`), several are extended to their common prefix and a second Tab lists them, in columns, at most eight rows.
+Dot-entries are offered only once a `.` is typed, and noise directories from the path policy never.
 8.2a The spinner shows the elapsed time after three seconds and, after thirty, a reminder that Ctrl-C forces a stop.
 8.3 The bottom status bar shows the mascot face (eyes: `o o` idle, `> >` thinking, `- -` stopped), the provider serving the active model (or `not set up`), folder and session id, model (or `none · run /auth`), approval mode, context size and its share of the compaction threshold, cumulative tokens, message count, a per-turn executed-tool count, worktree branch, plan progress, and the last error; it repaints during a turn (after each streamed model call and tool run), not only at the prompt.
 8.4 Turns are labelled `❯` for the user and `🛴 scoot` for the assistant (`⏺ scoot` with `--no-emoji`); the assistant label prints once per turn.

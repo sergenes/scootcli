@@ -82,7 +82,7 @@ def copy_session_output(session) -> "tuple[bool, str]":
     """
     text = (getattr(session, "last_output", "") or "").strip()
     if not text:
-        return False, "nothing to copy yet — ask me something first."
+        return False, "nothing to copy yet: ask me something first."
     if copy_to_clipboard(text):
         return True, f"copied last answer ({len(text)} chars) to the clipboard."
     return False, "couldn't reach a clipboard (no pbcopy/xclip/OSC-52 support)."

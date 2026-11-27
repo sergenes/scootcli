@@ -1,4 +1,10 @@
-"""search — find text in the workspace. Uses ripgrep when available, else a stdlib fallback.
+"""search: find text in the workspace or under a given path. Uses ripgrep when available, else a
+stdlib fallback.
+
+Both backends see hidden files (``.github/``, ``.gitlab-ci.yml``) and both are held to the shared
+:mod:`scootcli.pathpolicy`: no VCS internals, caches or virtual environments, no files that usually
+hold credentials, no symlinks. ripgrep's results are filtered again against the policy, so the two
+backends agree on what is searchable.
 
 Results are **grouped by file** with per-file counts and a few sample lines each, so large result
 sets stay compact (token-efficient) instead of dumping hundreds of raw lines into the context. Pass
@@ -9,11 +15,12 @@ from __future__ import annotations
 
 import shutil
 from collections import OrderedDict
+from pathlib import Path
 
+from .. import pathpolicy
 from . import register
-from .base import Tool, ToolContext, ToolError, ToolResult, run_subprocess, truncate
+from .base import Tool, ToolContext, ToolError, ToolResult, _inside, run_subprocess, safe_path, truncate
 
-_HIDDEN_DIRS = {".git", ".hg", ".svn", "__pycache__", ".mypy_cache", ".pytest_cache", "node_modules"}
 _SCAN_CAP = 1000     # max raw matches collected internally (keeps work + counts bounded)
 _MAX_FILES = 20      # files shown in the grouped output
 _MAX_PER_FILE = 3    # sample lines shown per file
@@ -24,8 +31,10 @@ _MAX_FILE_BYTES = 1_000_000
 class Search(Tool):
     name = "search"
     description = (
-        "Search file contents in the workspace for a string or regex. Returns matches grouped by "
-        "file with per-file counts and a few sample lines. Set files_only=true for just a file list."
+        "Search file contents for a string or regex, in the workspace or under `path`. Hidden files "
+        "such as .github/ are included; VCS internals, caches, and files that hold credentials are "
+        "not. Returns matches grouped by file with per-file counts and a few sample lines. Set "
+        "files_only=true for just a file list."
     )
     risk = "read"
     parameters = {
@@ -34,6 +43,11 @@ class Search(Tool):
             "query": {"type": "string", "description": "Text or regex to search for."},
             "is_regex": {"type": "boolean", "description": "Treat query as a regex (default false)."},
             "include_glob": {"type": "string", "description": "Only search files matching this glob."},
+            "path": {
+                "type": "string",
+                "description": "Directory or file to search (default: the workspace root). May be "
+                               "outside the workspace, for example a sibling repository.",
+            },
             "files_only": {
                 "type": "boolean",
                 "description": "Return only matching file paths with counts (most compact).",
@@ -49,14 +63,18 @@ class Search(Tool):
         is_regex = bool(args.get("is_regex"))
         glob = args.get("include_glob")
         files_only = bool(args.get("files_only"))
+        hidden = pathpolicy.hidden_enabled(ctx.config)
 
         try:
+            base, only, prefix = self._target(args.get("path"), ctx)
             if shutil.which("rg"):
-                matches, capped = self._ripgrep(query, is_regex, glob, ctx)
+                matches, capped = self._ripgrep(query, is_regex, glob, ctx, base, only, hidden)
             else:
-                matches, capped = self._python_search(query, is_regex, glob, ctx)
+                matches, capped = self._python_search(query, is_regex, glob, ctx, base, only, hidden)
         except ToolError as exc:
             return ToolResult.fail(str(exc))
+        if prefix:
+            matches = [(prefix + rel, n, text) for rel, n, text in matches]
 
         if not matches:
             return ToolResult(ok=True, content="(no matches)", summary="0 matches")
@@ -66,6 +84,36 @@ class Search(Tool):
         total = f"{len(matches)}{'+' if capped else ''}"
         summary = f"{total} matches in {len(groups)} file(s)"
         return ToolResult(ok=True, content=truncate(content), summary=summary)
+
+    # ── where to search ───────────────────────────────────────────────────────────
+    @staticmethod
+    def _target(raw, ctx):
+        """``(base directory, single file name or None, display prefix)`` for the ``path`` argument.
+
+        The path is resolved (symlinks included) and checked against the scope, so a search outside
+        the workspace needs the same grant as a read there. Results under the workspace are shown
+        relative to its root, results elsewhere with the absolute base.
+        """
+        root = Path(ctx.root).resolve()
+        if not raw or not str(raw).strip():
+            return root, None, ""
+        target = safe_path(ctx.root, raw, ctx.scope)
+        if not target.exists():
+            raise ToolError(f"no such file or directory: {raw}")
+        only = None
+        base = target
+        if not target.is_dir():
+            if not target.is_file():
+                raise ToolError(f"not a regular file or directory: {raw}")
+            if pathpolicy.is_secret_file(target.name):
+                raise ToolError(f"{target.name} is excluded from search: it usually holds credentials")
+            base, only = target.parent, target.name
+        if _inside(base, root):
+            rel = base.relative_to(root).as_posix()
+            prefix = "" if rel == "." else rel + "/"
+        else:
+            prefix = base.as_posix().rstrip("/") + "/"
+        return base, only, prefix
 
     # ── formatting ────────────────────────────────────────────────────────────────
     @staticmethod
@@ -100,27 +148,34 @@ class Search(Tool):
             lines.append("")
             extra = f"+{nfiles - _MAX_FILES} more file(s). " if nfiles > _MAX_FILES else ""
             lines.append(
-                f"… {extra}Narrow with include_glob or a more specific query, "
+                f"… {extra}Narrow with include_glob, path, or a more specific query, "
                 f"or read a specific file."
             )
         return "\n".join(lines)
 
     # ── backends ────────────────────────────────────────────────────────────────
-    def _ripgrep(self, query, is_regex, glob, ctx):
-        cmd = ["rg", "--line-number", "--no-heading", "--color", "never"]
+    def _ripgrep(self, query, is_regex, glob, ctx, base=None, only=None, hidden=True):
+        base = Path(base or ctx.root)
+        cmd = ["rg", "--line-number", "--no-heading", "--with-filename", "--color", "never"]
+        if hidden:
+            cmd.append("--hidden")
         if not is_regex:
             cmd.append("--fixed-strings")
         if glob:
             cmd += ["--glob", glob]
-        cmd += ["--", query]
-        rc, out, err = run_subprocess(cmd, ctx.root, ctx.cancel_event, timeout=30)
+        if hidden:
+            for exclude in pathpolicy.ripgrep_globs():  # after the user's glob: a later glob wins
+                cmd += ["--glob", exclude]
+        cmd += ["--", query, only if only else "."]
+        rc, out, err = run_subprocess(cmd, base, ctx.cancel_event, timeout=30)
         # ripgrep: 0 = matches, 1 = no matches (not an error), 2+ = a real failure (bad regex, I/O).
         if rc >= 2:
             raise ToolError(f"search failed: {err.strip() or f'ripgrep exited {rc}'}")
-        return self._parse_rg(out.splitlines())
+        return self._parse_rg(out.splitlines(), hidden)
 
     @staticmethod
-    def _parse_rg(raw_lines):
+    def _parse_rg(raw_lines, hidden=True):
+        """ripgrep's ``path:line:text`` rows as matches, minus the paths the policy excludes."""
         matches = []
         capped = False
         for line in raw_lines:
@@ -130,6 +185,10 @@ class Search(Tool):
             if len(parts) < 3:
                 continue
             rel, num, text = parts
+            if rel.startswith("./"):
+                rel = rel[2:]
+            if not pathpolicy.allows(rel, hidden):
+                continue
             try:
                 num_int = int(num)
             except ValueError:
@@ -140,23 +199,28 @@ class Search(Tool):
                 break
         return matches, capped
 
-    def _python_search(self, query, is_regex, glob, ctx):
-        """The fallback without ripgrep, walking the way ripgrep does by default: no hidden files or
-        directories (``.env``, ``.git``), no symlinks (a link inside the workspace must not read a file
-        outside it through an auto-approved tool), only regular files."""
+    def _python_search(self, query, is_regex, glob, ctx, base=None, only=None, hidden=True):
+        """The fallback without ripgrep. It walks with the path policy: no symlinks (a link inside the
+        workspace must not read a file outside it through an auto-approved tool), only regular files,
+        no noise directories, no files that usually hold credentials."""
         import fnmatch
         import os
         import re
 
-        pattern = re.compile(query) if is_regex else None
+        base = Path(base or ctx.root)
+        try:
+            pattern = re.compile(query) if is_regex else None
+        except re.error as exc:
+            raise ToolError(f"search failed: bad regex: {exc}")
+        files = [base / only] if only else pathpolicy.iter_files(base, hidden)
         matches = []
         capped = False
-        for path in _walk_files(ctx.root):
+        for path in files:
             if len(matches) >= _SCAN_CAP:
                 capped = True
                 break
-            rel = path.relative_to(ctx.root).as_posix()
-            if glob and not fnmatch.fnmatch(rel, glob):
+            rel = path.relative_to(base).as_posix()
+            if glob and not (fnmatch.fnmatch(rel, glob) or fnmatch.fnmatch(path.name, glob)):
                 continue
             try:
                 st = os.lstat(path)
@@ -175,23 +239,4 @@ class Search(Tool):
         return matches, capped
 
 
-def _walk_files(root):
-    """Regular files under ``root``: hidden names and ``_HIDDEN_DIRS`` pruned, symlinks never followed
-    or read (``os.walk`` does not descend into linked directories; linked files are skipped here)."""
-    import os
-    from pathlib import Path
-
-    for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = sorted(d for d in dirnames if not d.startswith(".") and d not in _HIDDEN_DIRS
-                             and not os.path.islink(os.path.join(dirpath, d)))
-        for name in sorted(filenames):
-            if name.startswith("."):
-                continue
-            full = os.path.join(dirpath, name)
-            if os.path.islink(full) or not os.path.isfile(full):
-                continue
-            yield Path(full)
-
-
 register(Search())
-

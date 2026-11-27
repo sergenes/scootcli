@@ -71,7 +71,7 @@ A failing test's output is what the model needs next; `ERROR: exit 1` alone only
 | --- | --- |
 | `read_file` | A regular file, at most N bytes, optional line range, numbered lines, truncation disclosed. |
 | `list_dir` | A bounded listing, no external symlink targets. |
-| `search` | ripgrep when present, a stdlib walk otherwise; grouped per file, bounded; an error is not "no matches". |
+| `search` | ripgrep when present, a stdlib walk otherwise; grouped per file, bounded; an error is not "no matches"; an optional `path`; hidden files in, secrets and noise out, by one policy both backends share. |
 | `write_file` | Requires a string `content`; a missing one is an error, never an emptied file. Previews a diff. |
 | `edit_file` | Exact, unique `old_string`; refuses a file that is not UTF-8; matches on LF-normalised text and writes the file's own line endings back. Previews a diff. |
 | `run_shell` | Shows the exact command and directory; runs with stdin closed and pagers disabled; bounded output and lifetime; the exit code and both streams come back. |
