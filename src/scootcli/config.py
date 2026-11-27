@@ -246,6 +246,7 @@ class Config:
     dock: bool = True  # pin the prompt to a fixed bottom row; output scrolls above it (TTY only)
     resume: str = "auto"  # launch resume policy: hint (show last) | auto (reload last) | off
     workspace_context: bool = True  # inject a compact repo map (git + tree) into the agent prompt
+    hidden_files: bool = True  # search and the repo map see dot-paths (.github/); the path policy still applies
     labels: bool = True  # show role labels/gutters (❯ you / ⏺ scoot) in the REPL transcript
     verbosity: str = "full"  # feed detail: full (tool log) | compact (transient tool line) | quiet (no reasoning)
     images: bool = True  # detect dropped image paths + describe them with a vision model (M22)
@@ -308,6 +309,7 @@ class Config:
             dock=_as_bool(get("SCOOT_DOCK", "true")),
             resume=get("SCOOT_RESUME", "auto").strip().lower(),
             workspace_context=_as_bool(get("SCOOT_WORKSPACE_CONTEXT", "true")),
+            hidden_files=_as_bool(get("SCOOT_HIDDEN_FILES", "true")),
             labels=_as_bool(get("SCOOT_LABELS", "true")),
             verbosity=get("SCOOT_VERBOSITY", "full").strip().lower(),
             images=_as_bool(get("SCOOT_IMAGES", "true")),

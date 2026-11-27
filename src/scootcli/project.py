@@ -11,10 +11,8 @@ import threading
 from pathlib import Path
 from typing import List, Optional
 
-_SKIP_DIRS = {
-    ".git", ".hg", ".svn", "__pycache__", ".mypy_cache", ".pytest_cache", ".ruff_cache",
-    "node_modules", ".venv", "venv", "dist", "build", ".idea", ".vscode", ".cache",
-}
+from . import pathpolicy
+
 _MANIFESTS = [
     "README.md", "README.rst", "README", "pyproject.toml", "setup.cfg", "setup.py",
     "requirements.txt", "package.json", "tsconfig.json", "pom.xml", "build.gradle",
@@ -31,16 +29,19 @@ _INIT_SYSTEM = (
 )
 
 
-def _iter_tree(root: Path) -> List[str]:
+def _iter_tree(root: Path, hidden: bool = True) -> List[str]:
+    """Relative paths under ``root`` (directories end in ``/``), as the path policy allows them."""
     entries: List[str] = []
-    for path in sorted(root.rglob("*")):
-        if any(part in _SKIP_DIRS for part in path.relative_to(root).parts):
-            continue
-        rel = path.relative_to(root).as_posix()
-        entries.append(rel + ("/" if path.is_dir() else ""))
-        if len(entries) >= _MAX_TREE_ENTRIES:
-            entries.append("… [tree truncated]")
-            break
+    root = Path(root)
+    for dirpath, _dirs, files in pathpolicy.walk(root, hidden, outputs=True):
+        here = Path(dirpath)
+        names = [] if here == root else [here.relative_to(root).as_posix() + "/"]
+        names += [(here / name).relative_to(root).as_posix() for name in files]
+        for rel in names:
+            if len(entries) >= _MAX_TREE_ENTRIES:
+                entries.append("… [tree truncated]")
+                return entries
+            entries.append(rel)
     return entries
 
 
@@ -57,9 +58,9 @@ def _collect_manifests(root: Path) -> List[str]:
     return chunks
 
 
-def scan(root: Path) -> str:
+def scan(root: Path, hidden: bool = True) -> str:
     """Return a text digest of the project (tree + manifests) for the model."""
-    tree = "\n".join(_iter_tree(root))
+    tree = "\n".join(_iter_tree(root, hidden))
     manifests = "\n\n".join(_collect_manifests(root)) or "(no common manifest files found)"
     return f"# File tree\n{tree}\n\n# Key files\n{manifests}"
 
@@ -79,7 +80,7 @@ def _strip_code_fence(text: str) -> str:
 def generate_agents_md(session, cancel_event: Optional[threading.Event] = None) -> str:
     """Scan the workspace root and ask the model to produce AGENTS.md content."""
     root = session.config.root
-    digest = scan(root)
+    digest = scan(root, pathpolicy.hidden_enabled(session.config))
     result = session.provider.chat(
         [
             {"role": "system", "content": _INIT_SYSTEM},

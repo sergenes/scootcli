@@ -69,6 +69,10 @@ def _run(session, args: str):
         print(f"  {color('cost (session):', 'gray'):<28} {fmt(total)}  {color(f'list prices as of {UPDATED}; unknown models show ?', 'gray')}")
     if session.model.lower() == "auto" and getattr(session, "route_reason", ""):
         print(f"  {color('routed by:', 'gray'):<28} {session.route_reason}")
+    scope = getattr(session, "scope", None)
+    granted = [] if scope is None or scope.everything else list(scope.granted)
+    for i, path in enumerate(granted):  # directories and files allowed outside the workspace this session
+        print(f"  {color('granted paths:' if i == 0 else '', 'gray'):<28} {path}")
     trusted = getattr(session, "trusted_tools", None)
     if trusted:
         print(f"  {color('trusted tools:', 'gray'):<28} {', '.join(sorted(trusted))}")

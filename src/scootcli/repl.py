@@ -15,6 +15,7 @@ import sys
 import threading
 import time
 from contextlib import contextmanager
+from pathlib import Path
 from typing import List
 
 from . import commands
@@ -673,6 +674,7 @@ class Repl:
             enabled=self.dock, on_copy=self._copy_last,
             layout=self._dock_layout, on_reflow=self._reflow_dock,
             completer=self._command_names, resize=self.resize,
+            path_entries=self._path_entries,
         )
         self.session.status_bar = self.bar  # let the /panel command reach it
         from .hooks import Hooks
@@ -688,6 +690,27 @@ class Repl:
         """Slash-command names (no leading '/') for Tab completion, alphabetically."""
         commands.load_builtins()
         return list(commands.all_commands().keys())
+
+    def _path_entries(self, directory: str):
+        """``(name, is_dir)`` pairs of the directory typed so far, for Tab path completion.
+
+        Relative text is taken from the workspace root (which a worktree moves); ``~`` and absolute
+        paths work too. Noise directories from the path policy are never offered.
+        """
+        import os
+
+        from . import pathpolicy
+
+        base = Path(os.path.expanduser(directory)) if directory else Path(".")
+        if not base.is_absolute():
+            base = Path(self.session.config.root) / base
+        found = []
+        with os.scandir(base) as it:
+            for entry in it:
+                if entry.name in pathpolicy.NOISE_DIRS or entry.name in pathpolicy.NOISE_FILES:
+                    continue
+                found.append((entry.name, entry.is_dir()))
+        return found
 
     def _seed_history(self) -> None:
         """Prime the line editor's ↑/↓ recall with the user prompts from a resumed session."""

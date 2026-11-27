@@ -161,21 +161,25 @@ Released 2026-11-20.
 What the agent and the user can reach, in a new `pathpolicy.py`, `tools/search.py`, `workspace.py`, `project.py`, and `lineeditor.py`.
 The path policy comes first: the search change and Tab completion both use it.
 
-- [ ] **Hidden files visible to the agent, behind one path policy.**
+- [x] **Hidden files visible to the agent, behind one path policy.**
   `search` (ripgrep `--hidden` and the stdlib fallback) and the workspace map include dot-paths such as `.github/` and `.gitlab-ci.yml`.
   One shared `pathpolicy.py` excludes VCS internals, caches and venvs, `.scoot/` state, and secret-bearing files (`.env`, `.env.*` except examples, `*.pem`/`*.key`, SSH keys, `.netrc`, credential JSON); ripgrep results are re-filtered against it.
   It replaces the separate skip lists in `workspace.py`, `project.py`, and `tools/search.py`.
   A setting restores the old behaviour.
+  Done: `SCOOT_HIDDEN_FILES=0` is the setting; `dist`, `build`, and `.vscode` stay searchable and are left out of the map and the `/init` scan only.
   This reverses part of R07 (0.10.0) on purpose, so the secret exclusions and the symlink rule get their own regression tests.
-- [ ] **`search` takes a `path`.**
+- [x] **`search` takes a `path`.**
   An optional base directory, inside or outside the workspace, so the agent can grep a sibling repo; today `read_file` and `list_dir` can leave the workspace through the scope prompt but `search` is fixed to the root.
   An outside path goes through the same scope prompt; both backends walk under the resolved base, with the symlink and path-policy exclusions kept.
-- [ ] **Read grants in `/status`.**
+- [x] **Read grants in `/status`.**
   Check that session directory grants from the scope prompt are listed in `/status`, and add them if not.
-- [ ] **Tab completes file paths and lists matches.**
+  Done: it showed a count only; each granted path is now listed.
+- [x] **Tab completes file paths and lists matches.**
   An ambiguous `/command` prefix lists every match on the first Tab, then cycles.
   Any other word completes as a path relative to the workspace root (or absolute or `~`): a unique match is inserted (directories end in `/`), several extend to the common prefix, a second Tab lists them in columns.
   Dot-entries only when a `.` is typed; noise directories from the path policy never.
+- [x] **CI runs both search backends:** the workflow installs ripgrep, so the ripgrep cases no longer skip there.
+- [ ] **Released:** merge to `main`, tag `v0.17.0`, upload to PyPI.
 
 ### 0.18.0: knows where it is
 

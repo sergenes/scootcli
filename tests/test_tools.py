@@ -383,7 +383,8 @@ def test_run_subprocess_feeds_stdin_text():
 
 
 # ── 0.10.0: the stdlib search cannot read outside the workspace (review R07) ─────
-def test_python_search_skips_symlinks_and_hidden_files():
+# 0.17.0 made hidden files searchable again on purpose; the symlink and secret rules stay.
+def test_python_search_skips_symlinks_and_secret_files():
     import os
     from scootcli.tools.search import Search
 
@@ -400,7 +401,9 @@ def test_python_search_skips_symlinks_and_hidden_files():
         os.symlink(outside, root / "linked.txt")
         os.symlink(Path(d), root / "linked_dir")
         matches, _ = Search()._python_search("MARKER", False, None, _ctx(root))
-        assert [m[0] for m in matches] == ["inside.txt"]
+        assert [m[0] for m in matches] == ["inside.txt", ".github/ci.yml"]
+        matches, _ = Search()._python_search("MARKER", False, None, _ctx(root), hidden=False)
+        assert [m[0] for m in matches] == ["inside.txt"]       # SCOOT_HIDDEN_FILES=0: the 0.10.0 rule
 
 
 def test_workspace_map_does_not_follow_symlinks():
