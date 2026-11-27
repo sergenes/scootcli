@@ -179,7 +179,7 @@ The path policy comes first: the search change and Tab completion both use it.
   Any other word completes as a path relative to the workspace root (or absolute or `~`): a unique match is inserted (directories end in `/`), several extend to the common prefix, a second Tab lists them in columns.
   Dot-entries only when a `.` is typed; noise directories from the path policy never.
 - [x] **CI runs both search backends:** the workflow installs ripgrep, so the ripgrep cases no longer skip there.
-- [ ] **Released:** merge to `main`, tag `v0.17.0`, upload to PyPI.
+- [x] **Released:** merged to `main`, tagged `v0.17.0`, and uploaded to PyPI (2026-11-27).
 
 ### 0.18.0: knows where it is
 
